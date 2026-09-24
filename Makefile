@@ -66,6 +66,10 @@ typegen: | baselayer/Makefile
 	bun x openapi-typescript openapi.json -o static/js/types/api.ts
 	rm -f openapi.{yml,json}
 
+js-models: ## Regenerate projects/js-client/src/models/ from the pydantic API models
+js-models:
+	@$(PYTHON) tools/build-js-models.py
+
 routemap: ## Regenerate static/js/types/routeSchemaMap.ts from openapi.json
 routemap: | baselayer/Makefile
 	@$(PYTHON) tools/docs/build-spec.py $(FLAGS)
