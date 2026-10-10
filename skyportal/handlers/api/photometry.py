@@ -600,7 +600,11 @@ def serialize(
                             if nan_to_none(phot.magref) is not None
                             else None
                         ),
-                        "magtot": phot.magtot,
+                        "magtot": (
+                            phot.magtot + db_correction
+                            if nan_to_none(phot.magtot) is not None
+                            else None
+                        ),
                         "e_magref": phot.e_magref,
                         "e_magtot": phot.e_magtot,
                     }
