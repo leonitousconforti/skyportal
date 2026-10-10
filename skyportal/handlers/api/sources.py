@@ -763,7 +763,7 @@ def get_luminosity_distance(obj):
         if obj["altdata"].get("dist_pc") is not None:
             return (float(obj["altdata"].get("dist_pc")) * 1e-6 * u.Mpc).value
         if obj["altdata"].get("dist_cm") is not None:
-            return (float(obj["altdata"].get("dist_cm")) * u.Mpc / 3.085e18).value
+            return (float(obj["altdata"].get("dist_cm")) * u.cm).to(u.Mpc).value
 
     if obj["redshift"]:
         if obj["redshift"] * HOOG_REDSHIFT_A < HOOG_REDSHIFT_B:
