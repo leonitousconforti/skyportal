@@ -150,7 +150,7 @@ def user_preferences(target, notification_setting, resource_type):
     if "preferences" not in target["user"]:
         return
 
-    if notification_setting in ["sms", "phone"]:
+    if notification_setting in ["sms", "phone", "whatsapp"]:
         if client is None:
             return
         if not target["user"]["contact_phone"]:
@@ -460,7 +460,7 @@ def send_whatsapp_notification(target):
             client.messages.create(
                 body=f"{cfg['app.title']} - {target['text']}",
                 from_="whatsapp:" + str(from_number),
-                to="whatsapp" + str(target["user"]["contact_phone"].e164),
+                to="whatsapp:" + str(target["user"]["contact_phone"].e164),
             )
             log(
                 f"Sent WhatsApp notification to user {target['user']['id']} at phone number: {target['user']['contact_phone'].e164}, body: {target['text']}, resource_type: {resource_type}"
@@ -531,15 +531,22 @@ def service(queue):
         if notification is None:
             continue
 
-        try:
-            push_frontend_notification(notification)
-            send_phone_notification(notification)
-            send_sms_notification(notification)
-            send_whatsapp_notification(notification)
-            send_email_notification(notification)
-            send_slack_notification(notification)
-        except Exception as e:
-            log(f"Error processing notification ID {notification.get('id')}: {str(e)}")
+        # one failing channel must not stop the others
+        for send in (
+            push_frontend_notification,
+            send_phone_notification,
+            send_sms_notification,
+            send_whatsapp_notification,
+            send_email_notification,
+            send_slack_notification,
+        ):
+            try:
+                send(notification)
+            except Exception as e:
+                log(
+                    f"Error processing notification ID {notification.get('id')} "
+                    f"in {send.__name__}: {str(e)}"
+                )
 
 
 def api(queue):
