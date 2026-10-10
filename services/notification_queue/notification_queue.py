@@ -1074,6 +1074,7 @@ def api(queue):
                                                 if len(intersection) == 0:
                                                     continue
 
+                                            localization_pass = True
                                             for prop_filt in gcn_pref.get(
                                                 "localization_properties", []
                                             ):
@@ -1105,7 +1106,10 @@ def api(queue):
                                                         ],
                                                         value,
                                                     ):
-                                                        continue
+                                                        localization_pass = False
+                                                        break
+                                            if not localization_pass:
+                                                continue
 
                                         if is_gcn_tag:
                                             text = (
