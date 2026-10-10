@@ -585,8 +585,9 @@ def dms_to_deg(input):
         Decimal degrees
     """
     d, m, s = input.split(" ")
+    # from the string, since float("-00") is -0.0, which compares >= 0
+    sign = -1 if d.strip().startswith("-") else 1
     d, m, s = float(d), float(m), float(s)
-    sign = 1 if d >= 0 else -1
     return sign * (abs(d) + m / 60 + s / 3600)
 
 
