@@ -1,0 +1,33 @@
+{
+  "name": "skyportal-js",
+  "version": "0.4.0",
+  "description": "First-party JavaScript client for the SkyPortal API",
+  "license": "BSD-3-Clause",
+  "author": "Leo Conforti <leo@leoconforti.us>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/skyportal/skyportal.git",
+    "directory": "projects/js-client"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./models": "./src/models/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "node ../../node_modules/typescript7/bin/tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "valibot": "1.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
