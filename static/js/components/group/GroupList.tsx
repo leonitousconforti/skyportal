@@ -44,7 +44,8 @@ const GroupList = ({
 }: GroupListProps) => {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
-  const [requestGroupAdmission] = useRequestGroupAdmissionMutation();
+  const [requestGroupAdmission, { isLoading: isRequesting }] =
+    useRequestGroupAdmissionMutation();
   const [deleteAdmissionRequest] = useDeleteAdmissionRequestMutation();
   const {
     id: currentUserID,
@@ -167,7 +168,7 @@ const GroupList = ({
           <Button
             secondary
             size="small"
-            disabled={isDisable}
+            disabled={isDisable || isRequesting}
             onClick={() => handleRequestAdmission(group)}
             data-testid={`requestAdmissionButton${group.id}`}
           >
