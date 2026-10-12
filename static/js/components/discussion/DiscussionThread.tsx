@@ -33,9 +33,9 @@ import { alpha, useTheme } from "@mui/material/styles";
 import ConfirmDeletionDialog from "../ConfirmDeletionDialog";
 import CommentForm from "../comment/CommentForm";
 import {
-  emojiSupport,
   highlightMentions,
   markdownLink,
+  rehypeEmoji,
 } from "../comment/Comment";
 import UserAvatar from "../user/UserAvatar";
 import DiscussionAvatar from "./DiscussionAvatar";
@@ -453,7 +453,8 @@ const DiscussionThread = ({ discussion, onBack }: DiscussionThreadProps) => {
                       >
                         <ReactMarkdown
                           remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
-                          components={{ text: emojiSupport, a: markdownLink }}
+                          rehypePlugins={[rehypeEmoji]}
+                          components={{ a: markdownLink }}
                         >
                           {highlightMentions(message.text)}
                         </ReactMarkdown>
