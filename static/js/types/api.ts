@@ -49359,7 +49359,7 @@ export interface components {
              * @default null
              */
             notify: {
-                [key: string]: unknown;
+                [key: string]: number[];
             } | null;
         };
         /**
