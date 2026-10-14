@@ -316,6 +316,9 @@ jobs:
           # schemainspect still imports pkg_resources, which setuptools 82 removed.
           # migra[pg] ships psycopg2, and SQLAlchemy 2.1 defaults postgresql:// to psycopg 3.
           uvx --from 'migra[pg]' --with 'setuptools<82' migra --unsafe postgresql+psycopg2://skyportal:anything@localhost:5432/skyportal postgresql+psycopg2://skyportal:anything@localhost:5432/skyportal2 > migra.sql || [[ $? -eq 2 && -s migra.sql ]]
+          # refresh_enums adds missing enum values at app startup by appending them,
+          # so migra's rebuild of an enum into the models' order is expected
+          sed -i -E '/__old_version_to_be_dropped|^create type .* as enum|::text::"public"/d; /^\s*$/d' migra.sql
           if [[ $(cat migra.sql | wc -l) -ne 0 ]]
           then
             echo "Differences found between migrated database and fresh database. See the migra-difference artifact."
