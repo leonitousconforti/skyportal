@@ -72,10 +72,19 @@ export const markdownLink = ({ node, children, ...props }: any) => (
   </Link>
 );
 
-export const emojiSupport = (textComment: any) =>
-  textComment.value.replace(/:\w+:/gi, (name: string) =>
-    emoji.getUnicode(name) ? emoji.getUnicode(name) : name,
-  );
+const replaceEmoji = (node: any) => {
+  if (node.type === "text") {
+    node.value = node.value.replace(/:\w+:/gi, (name: string) =>
+      emoji.getUnicode(name) ? emoji.getUnicode(name) : name,
+    );
+  } else if (node.tagName !== "code") {
+    node.children?.forEach(replaceEmoji);
+  }
+};
+
+// Rehype plugin for :name: shortcodes outside code, since react-markdown's
+// `components` can only override elements, not text.
+export const rehypeEmoji = () => replaceEmoji;
 
 interface CommentProps {
   resourceType?: string;
@@ -319,7 +328,8 @@ const Comment = ({
             <ReactMarkdown
               className={commentMessageStyle}
               remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
-              components={{ text: emojiSupport, a: markdownLink }}
+              rehypePlugins={[rehypeEmoji]}
+              components={{ a: markdownLink }}
             >
               {renderCommentText()}
             </ReactMarkdown>
