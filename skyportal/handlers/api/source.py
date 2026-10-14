@@ -2907,7 +2907,6 @@ class SourceCopyPhotometryHandler(BaseHandler):
 
             query_result = []
             for p in data:
-                instrument = p.instrument
                 result = serialize(p, "ab", "both", groups=False, annotations=False)
                 query_result.append(result)
 
@@ -2917,7 +2916,16 @@ class SourceCopyPhotometryHandler(BaseHandler):
 
             drop_columns = list(
                 set(df.columns.values)
-                - {"mjd", "ra", "dec", "mag", "magerr", "limiting_mag", "filter"}
+                - {
+                    "mjd",
+                    "ra",
+                    "dec",
+                    "mag",
+                    "magerr",
+                    "limiting_mag",
+                    "filter",
+                    "instrument_id",
+                }
             )
 
             df.drop(
@@ -2928,7 +2936,6 @@ class SourceCopyPhotometryHandler(BaseHandler):
 
             data_out = {
                 "obj_id": target_id,
-                "instrument_id": instrument.id,
                 "group_ids": [g.id for g in groups],
                 **df.to_dict(orient="list"),
             }
