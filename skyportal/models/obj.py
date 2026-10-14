@@ -800,7 +800,7 @@ class Obj(Base, conesearch_alchemy.Point):
             if self.altdata.get("dist_pc") is not None:
                 return (float(self.altdata.get("dist_pc")) * 1e-6 * u.Mpc).value
             if self.altdata.get("dist_cm") is not None:
-                return (float(self.altdata.get("dist_cm")) * u.Mpc / 3.085e18).value
+                return (float(self.altdata.get("dist_cm")) * u.cm).to(u.Mpc).value
 
         if self.redshift:
             if self.redshift * 2.99e5 * u.km / u.s < 350 * u.km / u.s:
