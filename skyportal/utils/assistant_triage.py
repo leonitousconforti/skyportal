@@ -17,12 +17,14 @@ email, OAuth identity or API token (see SKYBOT). Absent it, triage is skipped.
 
 import sqlalchemy as sa
 
+from baselayer.app.env import load_env
 from baselayer.log import make_log
 
 from ..models import (
     AssistantMessage,
     AssistantQuery,
     AssistantQuerySubscription,
+    Group,
     GroupUser,
     Source,
     Token,
@@ -30,6 +32,7 @@ from ..models import (
 )
 from .assistant import is_enabled
 
+_, cfg = load_env()
 log = make_log("assistant_triage")
 
 SKYBOT_USERNAME = "skybot"
@@ -122,9 +125,15 @@ async def _recipients(session, query):
     )
     notify_member_ids = set()
     for gid in query.notify_groups or []:
+        # skipped for the sitewide group, which every user is in
         notify_member_ids |= set(
             await session.scalars(
-                sa.select(GroupUser.user_id).where(GroupUser.group_id == int(gid))
+                sa.select(GroupUser.user_id)
+                .join(Group, Group.id == GroupUser.group_id)
+                .where(
+                    GroupUser.group_id == int(gid),
+                    Group.name != cfg["misc.public_group_name"],
+                )
             )
         )
     return combine_recipients(subscriber_ids, group_member_ids, notify_member_ids)
