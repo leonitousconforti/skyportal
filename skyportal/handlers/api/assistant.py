@@ -7,9 +7,12 @@ from baselayer.app.env import load_env
 
 from ...models import AssistantMessage
 from ...utils.assistant import CONTEXT_DESCRIPTIONS, is_enabled, post_to_assistant
+from ...utils.assistant_triage import QUERY_CHANNEL_PREFIX
 from ..base import BaseHandler
 
 _, cfg = load_env()
+
+RESERVED_NAME = 'Conversation names starting with "query:" are reserved'
 
 
 class AssistantMessagePostBody(BaseModel):
@@ -112,6 +115,8 @@ class AssistantMessageHandler(BaseHandler):
         # Other keys (e.g. comment_groups) are reserved for skybot's query runs.
         if body.notify and not body.notify.keys() <= {"users", "groups"}:
             return self.error("`notify` may only name `users` and `groups`")
+        if (body.channel or "").startswith(QUERY_CHANNEL_PREFIX):
+            return self.error(RESERVED_NAME)
 
         if not is_enabled(cfg):
             return self.error("No assistant is configured on this instance.")
@@ -200,6 +205,8 @@ class AssistantConversationHandler(BaseHandler):
             return self.error("`channel` must be provided")
         if not name:
             return self.error("`name` must not be empty")
+        if name.startswith(QUERY_CHANNEL_PREFIX):
+            return self.error(RESERVED_NAME)
         if name == query.channel:
             return self.success()
 

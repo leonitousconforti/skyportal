@@ -284,3 +284,26 @@ def test_a_question_carries_no_trace(user):
     assert_api(status, data)
     assert data["data"][0]["tool_calls"] is None
     assert data["data"][0]["proposal"] is None
+
+
+def test_query_channels_are_reserved(user):
+    token_id = _token(user)
+    channel = str(uuid.uuid4())
+    _seed(user.id, channel, "asked here")
+
+    status, data = api(
+        "POST",
+        "assistant/messages",
+        data={"text": "hi", "channel": "query:1:x"},
+        token=token_id,
+    )
+    assert_api_fail(status, data, expected_error_partial="are reserved")
+
+    status, data = api(
+        "PATCH",
+        "assistant/conversations",
+        data={"name": "query:1:x"},
+        params={"channel": channel},
+        token=token_id,
+    )
+    assert_api_fail(status, data, expected_error_partial="are reserved")

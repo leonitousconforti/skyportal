@@ -32,6 +32,9 @@ from .assistant import is_enabled
 log = make_log("assistant_triage")
 
 SKYBOT_USERNAME = "skybot"
+# The assistant service answers skybot's messages in these channels with the
+# query owner's access, so the API refuses them for anyone else's messages.
+QUERY_CHANNEL_PREFIX = "query:"
 
 # Appended to every query run so the answer ends with a machine-readable urgency
 # marker; the assistant service posts the comment either way but only notifies
@@ -166,7 +169,7 @@ async def enqueue_query_run(session, analysis, query) -> int | None:
     message = AssistantMessage(
         user_id=skybot.id,
         text=query.prompt + NOTIFY_SUFFIX,
-        channel=f"query:{query.id}:{analysis.obj_id}",
+        channel=f"{QUERY_CHANNEL_PREFIX}{query.id}:{analysis.obj_id}",
         context_type=query.context_type or "source",
         context_id=analysis.obj_id,
         notify=notify,
