@@ -37,7 +37,7 @@ from skyportal.utils.assistant import (
     proposal,
     record_call,
 )
-from skyportal.utils.assistant_triage import SKYBOT_USERNAME
+from skyportal.utils.assistant_triage import SKYBOT
 
 _, cfg = load_env()
 log = make_log("assistant")
@@ -267,12 +267,23 @@ def service_token(session, user_id):
     return token
 
 
-def requester_of(session, message, user):
+def query_of(session, message):
+    """The id of the query a skybot run answers, or None for any other message."""
     match = re.fullmatch(r"query:(\d+):.+", message.channel or "")
-    if match is None or not (user.is_bot and user.username == SKYBOT_USERNAME):
+    if match is None:
+        return None
+    skybot = session.scalar(
+        sa.select(User.id).where(User.id == message.user_id, SKYBOT)
+    )
+    return None if skybot is None else int(match[1])
+
+
+def requester_of(session, message):
+    query_id = query_of(session, message)
+    if query_id is None:
         return message.user_id
     return session.scalar(
-        sa.select(AssistantQuery.owner_id).where(AssistantQuery.id == int(match[1]))
+        sa.select(AssistantQuery.owner_id).where(AssistantQuery.id == query_id)
     )
 
 
@@ -484,7 +495,7 @@ def respond(message_id):
                 "first_name": user.first_name,
                 "last_name": user.last_name,
             }
-            requester_id = requester_of(session, message, user)
+            requester_id = requester_of(session, message)
             if requester_id is None:
                 log(f"message {message_id} is for a query that is gone; not answering")
                 return

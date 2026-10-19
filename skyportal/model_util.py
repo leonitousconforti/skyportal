@@ -11,6 +11,7 @@ from skyportal import __version__
 from skyportal.enum_types import sqla_enum_types
 from skyportal.facility_apis import LISTENERS
 from skyportal.models import ACL, DBSession, Deployment, Group, Role, Token, User
+from skyportal.utils.assistant_triage import NO_SIGN_IN, SKYBOT_USERNAME
 from skyportal.utils.gitlog import load_gitlog
 from skyportal.utils.notifications import post_notification
 
@@ -240,6 +241,13 @@ def provision_skybot():
     groups a task notifies. No-op when the feature is off."""
     triage = (cfg.get("app.assistant") or {}).get("analysis_triage") or {}
     if not triage.get("enabled"):
+        return
+    with DBSession() as session:
+        taken = session.scalar(
+            sa.select(User.id).where(User.username == SKYBOT_USERNAME, ~NO_SIGN_IN)
+        )
+    if taken is not None:
+        log(f"someone can sign in to or act as {SKYBOT_USERNAME!r}; rename it")
         return
     user = add_user("skybot", roles=["Full user"], first_name="Sky", last_name="Bot")
     if not user.is_bot:

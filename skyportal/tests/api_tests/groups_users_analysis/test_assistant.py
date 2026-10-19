@@ -1,8 +1,13 @@
 import uuid
+from types import SimpleNamespace
 
-from skyportal.model_util import create_token
-from skyportal.models import AssistantMessage, DBSession
-from skyportal.tests import api, assert_api, assert_api_fail
+import sqlalchemy as sa
+
+from skyportal import model_util
+from skyportal.model_util import create_token, delete_token
+from skyportal.models import AssistantMessage, DBSession, User, init_db
+from skyportal.tests import api, assert_api, assert_api_fail, cfg
+from skyportal.utils.assistant_triage import SKYBOT
 
 
 def _token(user):
@@ -307,3 +312,56 @@ def test_query_channels_are_reserved(user):
         token=token_id,
     )
     assert_api_fail(status, data, expected_error_partial="are reserved")
+
+
+def import_assistant_service():
+    """The service's import-time init_db() rebinds the session; undo it."""
+    from services.assistant import app
+
+    init_db(**cfg["database"])
+    return app
+
+
+def test_the_skybot_username_is_reserved(user):
+    token_id = _token(user)
+    for username in ["skybot", " SkyBot ", "skybot."]:
+        status, data = api(
+            "PATCH", "internal/profile", data={"username": username}, token=token_id
+        )
+        assert_api_fail(status, data, expected_error_partial="is reserved")
+
+
+def test_skybot_is_the_bot_of_that_name_nobody_can_sign_in_to(user, monkeypatch):
+    assistant = import_assistant_service()
+    session = DBSession()
+    user_id = user.id  # the fixture instance is detached once sessions close
+    run = SimpleNamespace(channel="query:7:ZTF20abc", user_id=user_id)
+
+    def update(**values):
+        session.execute(sa.update(User).where(User.id == user_id).values(**values))
+        session.commit()
+
+    def is_skybot():
+        found = session.scalar(sa.select(User.id).where(SKYBOT)) == user_id
+        assert (assistant.query_of(session, run) == 7) is found
+        return found
+
+    update(username="skybot", is_bot=True, contact_email=None)
+    assert is_skybot()
+
+    # Whoever holds a token for it could read its runs' answers
+    token_id = create_token(ACLs=[], user_id=user_id, name=str(uuid.uuid4()))
+    assert not is_skybot()
+    delete_token(token_id)
+    assert is_skybot()
+
+    # A sign-in could be matched to it by its email
+    update(contact_email=f"{uuid.uuid4().hex}@example.com")
+    assert not is_skybot()
+
+    # and provisioning skybot leaves such an account alone
+    update(is_bot=False)
+    triage_on = {"app.assistant": {"analysis_triage": {"enabled": True}}}
+    monkeypatch.setattr(model_util, "cfg", triage_on)
+    model_util.provision_skybot()
+    assert session.scalar(sa.select(User.is_bot).where(User.id == user_id)) is False
