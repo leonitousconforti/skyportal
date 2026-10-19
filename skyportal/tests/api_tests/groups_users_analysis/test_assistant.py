@@ -5,7 +5,13 @@ import sqlalchemy as sa
 
 from skyportal import model_util
 from skyportal.model_util import create_token, delete_token
-from skyportal.models import AssistantMessage, DBSession, User, init_db
+from skyportal.models import (
+    AssistantMessage,
+    DBSession,
+    User,
+    UserNotification,
+    init_db,
+)
 from skyportal.tests import api, assert_api, assert_api_fail, cfg
 from skyportal.utils.assistant_triage import SKYBOT
 
@@ -365,3 +371,29 @@ def test_skybot_is_the_bot_of_that_name_nobody_can_sign_in_to(user, monkeypatch)
     monkeypatch.setattr(model_util, "cfg", triage_on)
     model_util.provision_skybot()
     assert session.scalar(sa.select(User.is_bot).where(User.id == user_id)) is False
+
+
+def test_only_query_runs_notify_people_outside_the_authors_groups(user, user_group2):
+    # A self-declared bot sharing only the sitewide group with the recipient,
+    # which does not count.
+    assistant = import_assistant_service()
+    session = DBSession()
+    author_id, recipient_id = user.id, user_group2.id
+    session.execute(sa.update(User).where(User.id == author_id).values(is_bot=True))
+    session.commit()
+
+    def notifications():
+        return session.scalars(
+            sa.select(UserNotification).where(UserNotification.user_id == recipient_id)
+        ).all()
+
+    notify = {"users": [recipient_id]}
+    assistant.deliver_notifications(session, author_id, notify, "source", "x", "hi")
+    session.commit()
+    assert notifications() == []
+
+    assistant.deliver_notifications(
+        session, author_id, notify, "source", "x", "hi", query_run=True
+    )
+    session.commit()
+    assert len(notifications()) == 1

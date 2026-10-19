@@ -37,7 +37,8 @@ class AssistantMessagePostBody(BaseModel):
         description=(
             "Who to notify with the answer once it is ready, as "
             '{"users": [ids], "groups": [ids]}. The author is always notified; '
-            "named recipients must share a group with the author."
+            "named recipients must share a group other than the sitewide one "
+            "with the author."
         ),
     )
 
