@@ -180,7 +180,8 @@ const SurveyEfficiencyForm = ({
       .replace("+00:00", "")
       .replace(".000Z", "");
     formData.localizationDateobs = locLookUp[selectedLocalizationId].dateobs;
-    formData.localizationName = locLookUp[selectedLocalizationId].name;
+    formData.localizationName =
+      locLookUp[selectedLocalizationId].localization_name;
 
     const optionalInjectionParameters: Record<string, any> = {};
     if (
