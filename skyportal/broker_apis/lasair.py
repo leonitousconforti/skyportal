@@ -515,11 +515,6 @@ def is_plain_stream_message(payload):
     )
 
 
-def normalize_stream_message(payload, object_id):
-    """Standard alert shape from a stream message, whichever instance sent it."""
-    return _normalize_object(payload, object_id)
-
-
 async def _ingest_object(broker, oid, survey, filter_ids, token=None, payload=None):
     """Build the standard alert for one Lasair object, register it as a Candidate
     and save any annotator annotations it carried. Shared by both ingestion modes,

@@ -19,14 +19,6 @@ from ....models import (
 from ...base import BaseHandler
 from ..photometry import get_effective_wavelength
 
-device_types = [
-    "browser",
-    "mobile_landscape",
-    "mobile_portrait",
-    "tablet_landscape",
-    "tablet_portrait",
-]
-
 _, cfg = load_env()
 
 

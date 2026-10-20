@@ -154,12 +154,6 @@ def refresh_enums():
         session.commit()
 
 
-def make_super_user(username):
-    """Initializes a super user with full permissions."""
-    setup_permissions()  # make sure permissions already exist
-    add_user(username, roles=["Super admin"], auth=True)
-
-
 def provision_token():
     """Provision an initial administrative token."""
     admin = add_user(
