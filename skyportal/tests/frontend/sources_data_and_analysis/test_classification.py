@@ -134,3 +134,28 @@ def test_failed_classifications_stay_queued(
         expect(submit).to_be_enabled()
         expect(queued).to_be_visible()
     expect(page.get_by_text("Classifications saved.")).to_have_count(0)
+
+
+def test_taxonomy_hierarchy_dialog(page, user, public_group, taxonomy_token):
+    class_name = str(uuid.uuid4())
+    status, data = api(
+        "POST",
+        "taxonomy",
+        data={
+            "name": str(uuid.uuid4()),
+            "hierarchy": {"class": class_name},
+            "group_ids": [public_group.id],
+            "version": "test0.1",
+        },
+        token=taxonomy_token,
+    )
+    assert status == 200, data
+    taxonomy_id = data["data"]["taxonomy_id"]
+
+    page.goto(f"/become_user/{user.id}")
+    page.goto("/taxonomies")
+    page.locator(
+        f'//div[@role="row" and @data-id="{taxonomy_id}"]'
+        '//div[@data-field="details"]//button'
+    ).click()
+    expect(page.get_by_role("dialog")).to_contain_text(class_name)
