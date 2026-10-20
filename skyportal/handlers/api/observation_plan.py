@@ -1249,7 +1249,11 @@ class ObservationPlanRequestHandler(BaseHandler):
                     ObservationPlanRequest.status.contains(status.strip())
                 )
 
-            count_stmt = sa.select(func.count()).select_from(observation_plan_requests)
+            # the read policy and the dateobs join both join the event's groups,
+            # repeating a request for a reader in several of them
+            count_stmt = sa.select(func.count()).select_from(
+                observation_plan_requests.distinct().subquery()
+            )
             total_matches = await session.scalar(count_stmt)
             if n_per_page is not None:
                 observation_plan_requests = (

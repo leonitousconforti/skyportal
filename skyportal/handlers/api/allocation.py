@@ -94,8 +94,10 @@ class AllocationObservationPlanHandler(BaseHandler):
                 ],
             ).where(ObservationPlanRequest.allocation_id == allocation.id)
 
+            # the read policy joins the event's groups, repeating a request for
+            # a reader in several of them
             count_stmt = sa.select(func.count()).select_from(
-                observation_plan_requests.subquery()
+                observation_plan_requests.distinct().subquery()
             )
             total_matches = await session.scalar(count_stmt)
 

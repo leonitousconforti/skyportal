@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 
+from skyportal.models import DBSession
 from skyportal.tests import api
 from skyportal.utils.naive_datetime import utcnow_naive
 
@@ -316,3 +317,33 @@ def test_gcn_event_comments_and_summaries_shared_with_two_groups_listed_once(
     assert status == 200, data
     assert [c["text"] for c in data["data"]["comments"]] == [text]
     assert [s["title"] for s in data["data"]["summaries"]] == [title]
+
+
+def test_plan_request_total_matches_counts_each_request_once(
+    public_event_observation_plan_statistics, public_group2, view_only_token_two_groups
+):
+    plan = public_event_observation_plan_statistics.observation_plan
+    request = plan.observation_plan_request
+    # the reader is in several of the event's groups
+    request.gcnevent.groups.append(public_group2)
+    DBSession.commit()
+
+    status, data = api(
+        "GET",
+        f"allocation/observation_plans/{request.allocation_id}",
+        params={"numPerPage": 10},
+        token=view_only_token_two_groups,
+    )
+    assert status == 200, data
+    assert [r["id"] for r in data["data"]["observation_plan_requests"]] == [request.id]
+    assert data["data"]["totalMatches"] == 1
+
+    status, data = api(
+        "GET",
+        "observation_plan",
+        params={"dateobs": request.gcnevent.dateobs.isoformat(), "numPerPage": 10},
+        token=view_only_token_two_groups,
+    )
+    assert status == 200, data
+    assert [r["id"] for r in data["data"]["requests"]] == [request.id]
+    assert data["data"]["totalMatches"] == 1
