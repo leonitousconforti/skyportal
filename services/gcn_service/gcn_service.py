@@ -43,7 +43,7 @@ client_secret = cfg["gcn.client_secret"]
 voevent_notice_types = cfg.get("gcn.notice_types.voevent", [])
 json_notice_types = cfg.get("gcn.notice_types.json", [])
 
-reject_tags = cfg.get("gcn.reject_tags", [])
+reject_tags = cfg.get("gcn.reject_tags") or []
 
 circulars_enabled = cfg.get("gcn.circulars.enabled", False)
 circulars_topic = cfg.get("gcn.circulars.topic", "gcn.circulars")
