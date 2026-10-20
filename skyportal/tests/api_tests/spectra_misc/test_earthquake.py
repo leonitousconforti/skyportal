@@ -57,6 +57,15 @@ def test_earthquake_predictions_and_measurements(super_admin_token, view_only_to
     assert status == 200
     assert data["status"] == "success"
 
+    status, data = api(
+        "POST",
+        f"earthquake/{event_id}/mmadetector/{detector_id}/measurements",
+        token=super_admin_token,
+        data=measurement_data,
+    )
+    assert status == 400
+    assert "already exists" in data["message"]
+
     status, data = api("GET", f"earthquake/{event_id}", token=super_admin_token)
     assert status == 200
     data = data["data"]
@@ -103,6 +112,17 @@ def test_earthquake_predictions_and_measurements(super_admin_token, view_only_to
     data = data["data"]
     measurements = data["measurements"]
     assert len(measurements) == 0
+
+    # repeat on a new row, so the 400s cannot both rely on a measurement id
+    # that happens to equal the event id
+    for expected_status in (200, 400):
+        status, data = api(
+            "POST",
+            f"earthquake/{event_id}/mmadetector/{detector_id}/measurements",
+            token=super_admin_token,
+            data=measurement_data,
+        )
+        assert status == expected_status
 
 
 def test_earthquake_quakeml(super_admin_token, view_only_token):

@@ -643,7 +643,7 @@ class EarthquakeMeasurementHandler(BaseHandler):
 
             measurement = await session.scalar(
                 EarthquakeMeasured.select(session.user_or_token).where(
-                    EarthquakeMeasured.id == event.id,
+                    EarthquakeMeasured.event_id == event.id,
                     EarthquakeMeasured.detector_id == detector.id,
                 )
             )
