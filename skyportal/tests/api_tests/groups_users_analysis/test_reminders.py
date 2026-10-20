@@ -161,7 +161,36 @@ def test_reminder_on_spectra(super_admin_token, lris):
     spectrum_id = data["data"]["id"]
 
     endpoint = f"spectra/{spectrum_id}/reminders"
-    post_and_verify_reminder(endpoint, super_admin_token)
+    reminder_text = post_and_verify_reminder(endpoint, super_admin_token)
+
+    status, data = api("GET", endpoint, token=super_admin_token)
+    assert status == 200
+    reminder_id = next(
+        r["id"] for r in data["data"]["reminders"] if r["text"] == reminder_text
+    )
+
+    status, data = api("GET", f"{endpoint}/{reminder_id}", token=super_admin_token)
+    assert status == 200
+    assert data["data"]["spectrum_id"] == spectrum_id
+
+    status, data = api(
+        "PATCH",
+        f"{endpoint}/{reminder_id}",
+        data={"text": "updated"},
+        token=super_admin_token,
+    )
+    assert status == 200
+
+    status, data = api("GET", f"{endpoint}/{reminder_id}", token=super_admin_token)
+    assert status == 200
+    assert data["data"]["text"] == "updated"
+
+    status, data = api("DELETE", f"{endpoint}/{reminder_id}", token=super_admin_token)
+    assert status == 200
+
+    status, data = api("GET", endpoint, token=super_admin_token)
+    assert status == 200
+    assert len(data["data"]["reminders"]) == 0
 
 
 def test_reminder_on_gcn(super_admin_token, gcn_GW190814):

@@ -341,8 +341,10 @@ class ReminderHandler(BaseHandler):
                     if reminder is None:
                         return self.error(f"Could not find reminder {reminder_id}.")
 
-                    if associated_resource_type.lower() in ["source", "spectra"]:
+                    if associated_resource_type.lower() == "source":
                         reminder_resource_id_str = str(reminder.obj_id)
+                    elif associated_resource_type.lower() == "spectra":
+                        reminder_resource_id_str = str(reminder.spectrum_id)
                     elif associated_resource_type.lower() == "gcn_event":
                         reminder_resource_id_str = str(reminder.gcn_id)
                     elif associated_resource_type.lower() == "earthquake":
@@ -570,7 +572,7 @@ class ReminderHandler(BaseHandler):
                 elif associated_resource_type.lower() == "spectra":
                     spectrum = await session.scalar(
                         Spectrum.select(session.user_or_token).where(
-                            Spectrum.obj_id == coerced_resource_id
+                            Spectrum.id == coerced_resource_id
                         )
                     )
                     if not spectrum:
@@ -629,8 +631,10 @@ class ReminderHandler(BaseHandler):
                 if not reminder:
                     return self.error(f"Could not find reminder {reminder_id}")
 
-                if associated_resource_type.lower() in ["source", "spectra"]:
+                if associated_resource_type.lower() == "source":
                     reminder_resource_id_str = str(reminder.obj_id)
+                elif associated_resource_type.lower() == "spectra":
+                    reminder_resource_id_str = str(reminder.spectrum_id)
                 elif associated_resource_type.lower() == "gcn_event":
                     reminder_resource_id_str = str(reminder.gcn_id)
                 elif associated_resource_type.lower() == "shift":
@@ -739,7 +743,7 @@ class ReminderHandler(BaseHandler):
                 elif associated_resource_type.lower() == "spectra":
                     spectrum = await session.scalar(
                         Spectrum.select(session.user_or_token).where(
-                            Spectrum.obj_id == coerced_resource_id
+                            Spectrum.id == coerced_resource_id
                         )
                     )
                     if not spectrum:
@@ -800,8 +804,10 @@ class ReminderHandler(BaseHandler):
                 if not reminder:
                     return self.error(f"Could not find reminder {reminder_id}")
 
-                if associated_resource_type.lower() in ["source", "spectra"]:
+                if associated_resource_type.lower() == "source":
                     reminder_resource_id_str = str(reminder.obj_id)
+                elif associated_resource_type.lower() == "spectra":
+                    reminder_resource_id_str = str(reminder.spectrum_id)
                 elif associated_resource_type.lower() == "gcn_event":
                     reminder_resource_id_str = str(reminder.gcn_id)
                 elif associated_resource_type.lower() == "shift":
