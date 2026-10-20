@@ -549,7 +549,7 @@ def compute_traveltimes(earthquake, detector):
         MMA Detector to compute parameters for
     """
 
-    depth = earthquake.depth
+    depth = earthquake.depth / 1000  # stored in m, TauP takes km
     eqtime = Time(earthquake.date, format="datetime")
     eqlat = earthquake.lat
     eqlon = earthquake.lon

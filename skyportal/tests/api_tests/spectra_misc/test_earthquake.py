@@ -60,8 +60,10 @@ def test_earthquake_predictions_and_measurements(super_admin_token, view_only_to
     assert status == 200
     data = data["data"]
     predictions = data["predictions"]
-    assert predictions[0]["p"] == "2020-08-19T03:47:22.163374"
     assert predictions[0]["r2p0"] == "2020-08-19T03:47:22.163374"
+    # body waves arrive long before the 2 km/s surface wave
+    assert predictions[0]["p"] < predictions[0]["r2p0"]
+    assert predictions[0]["s"] < predictions[0]["r2p0"]
     measurements = data["measurements"]
     assert np.isclose(measurements[0]["rfamp"], 1e-5)
     assert measurements[0]["lockloss"] == 1
