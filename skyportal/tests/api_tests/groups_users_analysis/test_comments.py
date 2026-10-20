@@ -312,6 +312,36 @@ def test_problematic_post_comment_attachment_1275(
     assert data["status"] == "success"
 
 
+def test_comment_attachment_preview_is_sandboxed(comment_token, public_source):
+    html = "<script>alert(document.cookie)</script>"
+    status, data = api(
+        "POST",
+        f"sources/{public_source.id}/comments",
+        data={
+            "text": "Comment with an html attachment",
+            "attachment": {
+                "body": base64.b64encode(html.encode()).decode(),
+                "name": "page.html",
+            },
+        },
+        token=comment_token,
+    )
+    assert status == 200
+    comment_id = data["data"]["comment_id"]
+
+    response = api(
+        "GET",
+        f"sources/{public_source.id}/comments/{comment_id}/attachment",
+        params={"preview": True},
+        token=comment_token,
+        raw_response=True,
+    )
+    assert response.status_code == 200
+    assert response.text == html
+    assert response.headers.get("Content-Security-Policy") == "sandbox"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+
+
 def test_fetch_all_comments_on_obj(comment_token, public_source):
     comment_text = str(uuid.uuid4())
     status, data = api(
