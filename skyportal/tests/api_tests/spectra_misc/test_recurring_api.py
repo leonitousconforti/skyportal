@@ -75,3 +75,37 @@ def test_post_and_verify_recurring_api(
         n_retries += 1
     assert n_retries < 10
     assert status == 200
+
+
+def test_recurring_api_call_that_raises_counts_as_failed(super_admin_token):
+    # A JSON list cannot be encoded as GET params, so the call itself raises.
+    request_data = {
+        "next_call": utcnow_naive().strftime("%Y-%m-%dT%H:%M:%S"),
+        "call_delay": 1,
+        "method": "GET",
+        "endpoint": "sources",
+        "payload": "[1, 2]",
+    }
+    status, data = api(
+        "POST",
+        "recurring_api",
+        data=request_data,
+        token=super_admin_token,
+    )
+    assert status == 200
+    recurring_api_id = data["data"]["id"]
+
+    try:
+        for _ in range(30):
+            status, data = api(
+                "GET",
+                f"recurring_api/{recurring_api_id}",
+                token=super_admin_token,
+            )
+            assert status == 200
+            if data["data"]["number_of_retries"] < 10:
+                break
+            time.sleep(2)
+        assert data["data"]["number_of_retries"] < 10
+    finally:
+        api("DELETE", f"recurring_api/{recurring_api_id}", token=super_admin_token)
