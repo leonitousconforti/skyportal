@@ -89,6 +89,16 @@ def _sweep_default_analysis(session, default_analysis, cutoff):
         # skip the ones still too sparse so we don't churn through them each sweep.
         if _insufficient_photometry(session, default_analysis, obj_id):
             continue
+        # _run_default_analysis bumps the daily count without checking it.
+        under_limit = session.scalar(
+            sa.select(DefaultAnalysis.id).where(
+                DefaultAnalysis.id == default_analysis.id,
+                _default_analysis_under_limit(),
+            )
+        )
+        if under_limit is None:
+            log(f"{default_analysis.analysis_service.name} reached its daily limit")
+            break
         log(f"firing {default_analysis.analysis_service.name} on {obj_id}")
         _run_default_analysis(
             default_analysis.id,
