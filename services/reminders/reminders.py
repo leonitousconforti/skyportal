@@ -9,11 +9,13 @@ from baselayer.log import make_log
 from skyportal.models import (
     DBSession,
     Reminder,
+    ReminderOnEarthquake,
     ReminderOnGCN,
     ReminderOnShift,
     ReminderOnSpectrum,
     UserNotification,
 )
+from skyportal.models.earthquake import EarthquakeEvent
 from skyportal.models.gcn import GcnEvent
 from skyportal.models.shift import Shift
 from skyportal.utils.app import get_app_base_url
@@ -43,6 +45,7 @@ def send_reminders():
                 ReminderOnSpectrum,
                 ReminderOnGCN,
                 ReminderOnShift,
+                ReminderOnEarthquake,
             ]
             reminders = (
                 session.scalars(
@@ -80,6 +83,17 @@ def send_reminders():
                 )
                 url_endpoint = f"/gcn_events/{gcn_event.dateobs.isoformat()}"
                 notification_type = "reminder_on_gcn"
+            elif reminder_type == ReminderOnEarthquake:
+                earthquake = session.scalars(
+                    EarthquakeEvent.select(user).where(
+                        EarthquakeEvent.id == reminder.earthquake_id
+                    )
+                ).first()
+                text_to_send = (
+                    f"Reminder of earthquake *{earthquake.event_id}*: {reminder.text}"
+                )
+                url_endpoint = f"/earthquakes/{earthquake.event_id}"
+                notification_type = "reminder_on_earthquake"
             elif reminder_type == ReminderOnShift:
                 shift = session.scalars(
                     Shift.select(user).where(Shift.id == reminder.shift_id)

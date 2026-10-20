@@ -206,3 +206,37 @@ def test_reminder_on_gcn(super_admin_token, gcn_GW190814):
     )
     # the frontend routes GCN events by ISO dateobs, which has no space
     assert notification["url"] == f"/gcn_events/{gcn_GW190814.dateobs.isoformat()}"
+
+
+def test_reminder_on_earthquake(super_admin_token):
+    event_id = str(uuid.uuid4())
+    status, data = api(
+        "POST",
+        "earthquake",
+        data={
+            "event_id": event_id,
+            "latitude": 39.3648333,
+            "longitude": -123.2506667,
+            "depth": 7380.0,
+            "magnitude": 2.93,
+            "date": "2020-08-19 02:00:39",
+        },
+        token=super_admin_token,
+    )
+    assert status == 200
+
+    status, data = api("GET", f"earthquake/{event_id}", token=super_admin_token)
+    assert status == 200
+
+    endpoint = f"earthquake/{data['data']['id']}/reminders"
+    reminder_text = post_and_verify_reminder(endpoint, super_admin_token)
+
+    status, data = api("GET", "internal/notifications", token=super_admin_token)
+    assert status == 200
+    notification = next(
+        n
+        for n in data["data"]
+        if n["notification_type"] == "reminder_on_earthquake"
+        and reminder_text in n["text"]
+    )
+    assert notification["url"] == f"/earthquakes/{event_id}"
