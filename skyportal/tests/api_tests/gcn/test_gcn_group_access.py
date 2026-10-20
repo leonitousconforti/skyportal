@@ -275,3 +275,44 @@ def test_gcn_event_comments_respect_comment_groups(
     status, data = api("GET", f"gcn_event/{dateobs}", token=view_only_token)
     assert status == 200, data
     assert text not in [c["text"] for c in data["data"]["comments"]]
+
+
+def test_gcn_event_comments_and_summaries_shared_with_two_groups_listed_once(
+    super_admin_token, public_group, public_group2, comment_token_two_groups
+):
+    # the reader is in both of the event's and the comment's groups
+    group_ids = [public_group.id, public_group2.id]
+    dateobs, _, _ = _post_cone_event(super_admin_token, group_ids=group_ids)
+
+    status, data = api("GET", f"gcn_event/{dateobs}", token=comment_token_two_groups)
+    assert status == 200, data
+    gcnevent_id = data["data"]["id"]
+
+    text = str(uuid.uuid4())
+    status, data = api(
+        "POST",
+        f"gcn_event/{gcnevent_id}/comments",
+        data={"text": text, "group_ids": group_ids},
+        token=comment_token_two_groups,
+    )
+    assert status == 200, data
+
+    title = str(uuid.uuid4())
+    status, data = api(
+        "POST",
+        f"gcn_event/{dateobs}/summary",
+        data={
+            "title": title,
+            "groupId": public_group.id,
+            "startDate": dateobs,
+            "endDate": dateobs,
+            "noText": True,
+        },
+        token=super_admin_token,
+    )
+    assert status == 200, data
+
+    status, data = api("GET", f"gcn_event/{dateobs}", token=comment_token_two_groups)
+    assert status == 200, data
+    assert [c["text"] for c in data["data"]["comments"]] == [text]
+    assert [s["title"] for s in data["data"]["summaries"]] == [title]
