@@ -393,12 +393,14 @@ class EarthquakeHandler(BaseHandler):
             if query.statusRemove:
                 stmt = stmt.where(~EarthquakeEvent.status.contains(query.statusRemove))
 
+            # distinct, since the date joins repeat an event once per notice
+            stmt = stmt.distinct()
             total_matches = await session.scalar(
                 sa.select(sa.func.count()).select_from(stmt.subquery())
             )
 
             stmt = (
-                stmt.distinct()
+                stmt.order_by(EarthquakeEvent.created_at.desc())
                 .limit(query.numPerPage)
                 .offset((query.pageNumber - 1) * query.numPerPage)
             )
@@ -406,7 +408,16 @@ class EarthquakeHandler(BaseHandler):
             result = await session.scalars(stmt)
             events = []
             for event in result.unique().all():
-                events.append({**event.to_dict(), "notices": list(set(event.notices))})
+                events.append(
+                    {
+                        **event.to_dict(),
+                        "notices": sorted(
+                            event.notices,
+                            key=lambda notice: notice.created_at,
+                            reverse=True,
+                        ),
+                    }
+                )
 
             query_results = {"events": events, "totalMatches": int(total_matches)}
 

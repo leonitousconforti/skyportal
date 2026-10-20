@@ -209,6 +209,36 @@ def test_earthquake_dictionary(super_admin_token, view_only_token):
     status, data = api("GET", f"earthquake/{event_id}", token=super_admin_token)
 
 
+def test_earthquake_list_newest_first(super_admin_token):
+    event_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    # two notices for the first event, then one for the second
+    for event_id, magnitude in [
+        (event_ids[0], 2.5),
+        (event_ids[0], 3.5),
+        (event_ids[1], 4.5),
+    ]:
+        data = {
+            "event_id": event_id,
+            "latitude": 39.3648333,
+            "longitude": -123.2506667,
+            "depth": 7380.0,
+            "magnitude": magnitude,
+            "date": "2011-03-11 05:46:24",
+        }
+        status, data = api("POST", "earthquake", data=data, token=super_admin_token)
+        assert status == 200, data
+
+    params = {"startDate": "2011-03-11T05:46:00", "endDate": "2011-03-11T05:47:00"}
+    status, data = api("GET", "earthquake", token=super_admin_token, params=params)
+    assert status == 200, data
+    data = data["data"]
+    # the date filters join each event to every matching notice
+    assert data["totalMatches"] == len(data["events"])
+    events = [event for event in data["events"] if event["event_id"] in event_ids]
+    assert [event["event_id"] for event in events] == event_ids[::-1]
+    assert [notice["magnitude"] for notice in events[1]["notices"]] == [3.5, 2.5]
+
+
 def test_earthquake_comments_respect_comment_groups(
     super_admin_token, public_group2, comment_token_two_groups, view_only_token
 ):
