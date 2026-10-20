@@ -35,6 +35,11 @@ class SourceSaverHandler(BaseHandler):
                 Source.saved_by_id,
             ],
         ).where(Source.saved_at >= cutoff_day)
+        # Sharing with a group one is not in signs a row that the group may
+        # never save; only rows that are active or were unsaved were saves.
+        stmt = stmt.where(
+            sa.or_(Source.active.is_(True), Source.unsaved_by_id.isnot(None))
+        )
 
         if top_savers_prefs["candidatesOnly"]:
             stmt = stmt.where(
