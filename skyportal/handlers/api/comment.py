@@ -1209,6 +1209,12 @@ class CommentAttachmentHandler(BaseHandler):
                     f'inline; filename="{attachment_name}"',
                 )
                 self.set_header("Content-type", EXTENSION_TO_CONTENT_TYPE[extension])
+                # Uploads are untrusted: sandbox keeps html/svg/xml from running
+                # scripts on our origin (it does not apply to <img>/<video>/<audio>).
+                # Chrome will not render a sandboxed pdf, so pdf is exempt.
+                self.set_header("X-Content-Type-Options", "nosniff")
+                if extension != "pdf":
+                    self.set_header("Content-Security-Policy", "sandbox")
                 return self.write(attachment)
 
             comment_data = {
