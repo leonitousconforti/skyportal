@@ -64,11 +64,10 @@ export const UnifiedBuilderProvider = ({
   const { data: boomFilterVersion } = useBoomFilterVersion();
   const currentStream = boomFilterVersion?.stream?.name;
 
-  // Load saved data on mount (similar to useFilterBuilderData)
+  // Load saved data on mount
   useEffect(() => {
     const loadData = async () => {
       try {
-        // Load all saved data in parallel using the same pattern as FilterBuilderData
         const blocks: any = await fetchAllElements({ elements: "blocks" });
         const variables: any = await fetchAllElements({
           elements: "variables",
