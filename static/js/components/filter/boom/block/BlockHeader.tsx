@@ -115,28 +115,12 @@ const BlockHeader = ({
 
       // Add a condition to this block
       const defaultCondition = createDefaultCondition();
-      setFilters((prevFilters: any[]) => {
-        return prevFilters.map((rootBlock: any) => {
-          const updateBlock = (currentBlock: any): any => {
-            if (currentBlock.id === block.id) {
-              return {
-                ...currentBlock,
-                children: [...currentBlock.children, defaultCondition],
-              };
-            }
-            if (currentBlock.children) {
-              return {
-                ...currentBlock,
-                children: currentBlock.children.map((child: any) =>
-                  child.category === "block" ? updateBlock(child) : child,
-                ),
-              };
-            }
-            return currentBlock;
-          };
-          return updateBlock(rootBlock);
-        });
-      });
+      setFilters((prevFilters: any[]) =>
+        mapBlock(prevFilters, block.id, (current) => ({
+          ...current,
+          children: [...current.children, defaultCondition],
+        })),
+      );
     };
 
     document.addEventListener("keydown", handleKeyDown);
@@ -147,28 +131,16 @@ const BlockHeader = ({
   const handleRemoveBlock = (blockId: string) => {
     if (localFilters && setLocalFilters) {
       // Use local filter handling
-      if (parentBlockId === null) return;
+      if (parentBlockId == null) return;
 
-      const updatedFilters = localFilters.map((currentBlock: any) => {
-        const removeBlockFromTree = (blockToUpdate: any): any => {
-          if (blockToUpdate.id !== parentBlockId) {
-            return {
-              ...blockToUpdate,
-              children: blockToUpdate.children.map((child: any) =>
-                child.category === "block" ? removeBlockFromTree(child) : child,
-              ),
-            };
-          }
-          return {
-            ...blockToUpdate,
-            children: blockToUpdate.children.filter(
-              (child: any) => child.id !== blockId,
-            ),
-          };
-        };
-        return removeBlockFromTree(currentBlock);
-      });
-      setLocalFilters(updatedFilters);
+      setLocalFilters(
+        mapBlock(localFilters, parentBlockId, (parent) => ({
+          ...parent,
+          children: parent.children.filter(
+            (child: any) => child.id !== blockId,
+          ),
+        })),
+      );
     } else {
       // Use context removeBlock function
       removeBlock(blockId, parentBlockId);
@@ -219,22 +191,12 @@ const BlockHeader = ({
       return clonedBlock;
     };
 
-    setFilters((prevFilters: any[]) => {
-      const updateBlock = (b: any): any => {
-        if (b.id !== blockId) {
-          return {
-            ...b,
-            children: b.children.map((child: any) =>
-              child.category === "block" ? updateBlock(child) : child,
-            ),
-          };
-        }
-        // Replace block with original, but keep the same id
-        const original = cloneWithId(customBlock.block, blockId, true);
-        return { ...original };
-      };
-      return prevFilters.map(updateBlock);
-    });
+    // Replace block with original, but keep the same id
+    setFilters((prevFilters: any[]) =>
+      mapBlock(prevFilters, blockId, () =>
+        cloneWithId(customBlock.block, blockId, true),
+      ),
+    );
 
     // Set all nested blocks as collapsed
     if (nestedBlockIds.length > 0) {
@@ -463,22 +425,12 @@ const BlockHeader = ({
   };
 
   const handleToggleIsTrue = (checked: boolean) => {
-    setFilters((prevFilters: any[]) => {
-      const updateBlock = (b: any): any => {
-        if (b.id !== block.id) {
-          return {
-            ...b,
-            children: b.children
-              ? b.children.map((child: any) =>
-                  child.category === "block" ? updateBlock(child) : child,
-                )
-              : [],
-          };
-        }
-        return { ...b, isTrue: checked };
-      };
-      return prevFilters.map(updateBlock);
-    });
+    setFilters((prevFilters: any[]) =>
+      mapBlock(prevFilters, block.id, (current) => ({
+        ...current,
+        isTrue: checked,
+      })),
+    );
   };
 
   const [operatorTipOpen, setOperatorTipOpen] = useState(false);

@@ -30,7 +30,7 @@ import {
   normalizeFieldValue,
 } from "../../../../utils/conditionHelpers";
 import { usePostFilterElementMutation } from "../../../../ducks/boom_filter_modules";
-import { replaceOrAppend } from "../block/blockTree";
+import { mapBlock, replaceOrAppend } from "../block/blockTree";
 
 const defaultBlock = () => ({
   id: uuidv4(),
@@ -245,25 +245,13 @@ const AddSwitchDialog = () => {
       targetField: targetField ? normalizeFieldValue(targetField) : null,
     };
 
-    // Helper function to add condition to block
     const replaceId = (switchDialog as any).replaceConditionId;
-    const addConditionToBlock = (block: any): any => {
-      if (block.id === switchDialog.blockId) {
-        return {
-          ...block,
-          children: replaceOrAppend(block.children, newCondition, replaceId),
-        };
-      }
-      if (block.children) {
-        return {
-          ...block,
-          children: block.children.map(addConditionToBlock),
-        };
-      }
-      return block;
-    };
-
-    setFilters((prevFilters: any[]) => prevFilters.map(addConditionToBlock));
+    setFilters((prevFilters: any[]) =>
+      mapBlock(prevFilters, switchDialog.blockId, (block) => ({
+        ...block,
+        children: replaceOrAppend(block.children, newCondition, replaceId),
+      })),
+    );
 
     closeSwitchDialog();
   };

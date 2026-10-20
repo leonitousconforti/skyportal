@@ -27,7 +27,7 @@ import { useBoomFilterVersion } from "../../../../ducks/boom_filter";
 import ModuleStreams, { surveyToken } from "./ModuleStreams";
 import EquationEditor from "equation-editor-react";
 import { parseVariableExpression } from "./variableExpression";
-import { replaceOrAppend } from "../block/blockTree";
+import { mapBlock, replaceOrAppend } from "../block/blockTree";
 
 // Numeric types
 const numericTypes = ["double", "float", "int", "long"];
@@ -963,26 +963,12 @@ const AddVariableDialog = () => {
       createdAt: Date.now(),
     };
     const replaceId = (specialConditionDialog as any).replaceConditionId;
-    setFilters((prevFilters: any[]) => {
-      const addConditionToBlock = (block: any): any => {
-        if (block.id === specialConditionDialog.blockId) {
-          return {
-            ...block,
-            children: replaceOrAppend(block.children, newCondition, replaceId),
-          };
-        }
-        if (block.children) {
-          return {
-            ...block,
-            children: block.children.map((child: any) =>
-              child.category === "block" ? addConditionToBlock(child) : child,
-            ),
-          };
-        }
-        return block;
-      };
-      return prevFilters.map(addConditionToBlock);
-    });
+    setFilters((prevFilters: any[]) =>
+      mapBlock(prevFilters, specialConditionDialog.blockId, (block) => ({
+        ...block,
+        children: replaceOrAppend(block.children, newCondition, replaceId),
+      })),
+    );
 
     handleCloseSpecialCondition();
   };
