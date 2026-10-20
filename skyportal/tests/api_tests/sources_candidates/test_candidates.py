@@ -1818,6 +1818,65 @@ def test_candidates_annotation_filtering(
     assert len(data["data"]["candidates"]) == 0
 
 
+def test_candidates_annotation_min_count_counts_each_annotation_once(
+    public_candidate,
+    ztf_camera,
+    public_group,
+    public_group2,
+    view_only_token_two_groups,
+    upload_data_token_two_groups,
+    annotation_token_two_groups,
+):
+    obj_id = str(public_candidate.id)
+    # the reader is in both groups of the photometry and of its annotation
+    group_ids = [public_group.id, public_group2.id]
+    status, data = api(
+        "POST",
+        "photometry",
+        data={
+            "obj_id": obj_id,
+            "mjd": 58000.0,
+            "instrument_id": ztf_camera.id,
+            "flux": 12.24,
+            "fluxerr": 0.031,
+            "zp": 25.0,
+            "magsys": "ab",
+            "filter": "ztfg",
+            "group_ids": group_ids,
+        },
+        token=upload_data_token_two_groups,
+    )
+    assert status == 200
+    assert data["status"] == "success"
+    photometry_id = data["data"]["ids"][0]
+
+    status, data = api(
+        "POST",
+        f"photometry/{photometry_id}/annotations",
+        data={
+            "origin": "kowalski",
+            "data": {"gaia_G": 15.7},
+            "group_ids": group_ids,
+        },
+        token=annotation_token_two_groups,
+    )
+    assert status == 200
+
+    for min_count, expected in ((1, [obj_id]), (2, [])):
+        status, data = api(
+            "GET",
+            "candidates",
+            params={
+                "groupIDs": f"{public_group.id}",
+                "photometryAnnotationsFilterOrigin": "kowalski",
+                "photometryAnnotationsFilterMinCount": min_count,
+            },
+            token=view_only_token_two_groups,
+        )
+        assert status == 200
+        assert [c["id"] for c in data["data"]["candidates"]] == expected
+
+
 def test_candidate_savers(
     upload_data_token,
     upload_data_token_two_groups,
