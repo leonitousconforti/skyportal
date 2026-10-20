@@ -361,14 +361,11 @@ class SourceProcessor:
             create_source(session, obj_id, self.default_group_ids, self.bot_user_id)
 
             # Add photometry with deduplication
-            if photometry:
-                if (
-                    not self.instrument_name_mapping
-                    and not self.instrument_tns_id_mapping
-                ):
-                    log_verbose("    ✗ No instruments configured, skipping photometry")
-                    return
-
+            if photometry and not (
+                self.instrument_name_mapping or self.instrument_tns_id_mapping
+            ):
+                log_verbose("    ✗ No instruments configured, skipping photometry")
+            elif photometry:
                 # Group photometry by resolved instrument_id
                 phot_by_instrument_id = defaultdict(list)
                 unresolved_instruments = defaultdict(int)
