@@ -374,9 +374,20 @@ def process_submission_requests():
                         time.sleep(5)
                         continue
                     else:
-                        if submission_request.publish_to_hermes:
+                        # only claim the services still waiting, so a TNS retry
+                        # doesn't publish to Hermes again
+                        if (
+                            submission_request.publish_to_hermes
+                            and submission_request.hermes_status
+                            in ["pending", "processing"]
+                        ):
                             submission_request.hermes_status = "processing"
-                        if submission_request.publish_to_tns:
+                        if (
+                            submission_request.publish_to_tns
+                            and submission_request.tns_status
+                            in ["pending", "processing"]
+                            and submission_request.tns_submission_id is None
+                        ):
                             submission_request.tns_status = "processing"
                         session.commit()
                 except Exception as e:
@@ -403,9 +414,10 @@ def process_submission_requests():
                                     SharingServiceSubmission.id == submission_request_id
                                 )
                             )
-                            if submission_request.publish_to_hermes:
+                            # keep the status of a service that already finished
+                            if submission_request.hermes_status == "processing":
                                 submission_request.hermes_status = f"Error: {str(e)}"
-                            if submission_request.publish_to_tns:
+                            if submission_request.tns_status == "processing":
                                 submission_request.tns_status = f"Error: {str(e)}"
                             session.commit()
                             flow = Flow()
