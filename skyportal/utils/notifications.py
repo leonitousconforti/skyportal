@@ -1,4 +1,5 @@
 import datetime
+import html
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -280,10 +281,11 @@ def mention_email_notification(target, data=None):
         f"{cfg['app.title']} - {author_username} mentioned you"
         f" in a comment on this source {source_name}"
     )
+    url = html.escape(f"{app_url}{target['url']}")
     body = (
-        f"<p>{author_username} mentioned you in a comment on "
-        f"<a href='{app_url}{target['url']}'>{source_name}</a>:</p>"
-        f"<blockquote>{comment_text}</blockquote>"
+        f"<p>{html.escape(author_username)} mentioned you in a comment on "
+        f"<a href='{url}'>{html.escape(source_name)}</a>:</p>"
+        f"<blockquote>{html.escape(comment_text)}</blockquote>"
     )
     return subject, body
 

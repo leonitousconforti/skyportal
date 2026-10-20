@@ -129,8 +129,9 @@ def send_source_notification(mapper, connection, target):
 
     descriptor = "immediate" if target.level == "hard" else ""
     html_content = (
-        f"<p>{sent_by_name} would like to call your {descriptor} attention to"
-        f' <a href="{link_location}">{target.source_id}</a> ({source_info})</p>'
+        f"<p>{html.escape(sent_by_name)} would like to call your {descriptor}"
+        f' attention to <a href="{html.escape(link_location)}">'
+        f"{html.escape(target.source_id)}</a> ({source_info})</p>"
     )
     if target.additional_notes:
         html_content += (

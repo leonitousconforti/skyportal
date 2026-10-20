@@ -6,6 +6,7 @@ from skyportal.utils.notifications import (
     followup_request_slack_notification,
     gcn_email_notification,
     gcn_slack_notification,
+    mention_email_notification,
     source_email_notification,
     source_slack_notification,
 )
@@ -195,6 +196,20 @@ def test_source_notifications_require_data():
         source_slack_notification({"url": "/source/x"}, None)
     with pytest.raises(ValueError, match="No data provided"):
         source_email_notification({"url": "/source/x"}, None)
+
+
+def test_mention_email_escapes_user_text():
+    target = {"url": "/source/ZTF24abcdefg"}
+    data = {
+        "author_username": "<b>alice</b>",
+        "comment_text": "@bob <a href='https://evil.example'>sign in</a>",
+        "source_name": "<i>ZTF24abcdefg</i>",
+    }
+    _, html = mention_email_notification(target, data)
+    assert "&lt;b&gt;alice&lt;/b&gt; mentioned you" in html
+    assert "@bob &lt;a href=&#x27;https://evil.example&#x27;&gt;" in html
+    assert "/source/ZTF24abcdefg'>&lt;i&gt;ZTF24abcdefg&lt;/i&gt;</a>" in html
+    assert "evil.example'>" not in html
 
 
 def _followup_data():
