@@ -71,6 +71,8 @@ def preferences_footer():
 
 
 def as_text(fragment):
+    # lxml refuses to set text containing characters that are invalid in XML
+    fragment = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]", "", fragment)
     root = lxml.html.fragment_fromstring(fragment, create_parent="div")
     for link in root.iter("a"):
         href, label = link.get("href"), link.text_content().strip()

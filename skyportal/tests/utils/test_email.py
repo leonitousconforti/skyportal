@@ -73,6 +73,11 @@ def test_text_part_keeps_link_addresses():
     assert mail.as_text("<p>One</p><ul><li>a</li><li>b</li></ul>") == "One\n\n- a\n- b"
 
 
+def test_text_part_drops_control_characters():
+    text = mail.as_text("<p>a\x0cb</p><blockquote>c\x1bd\ufffe</blockquote>")
+    assert text == "ab\n\ncd"
+
+
 def test_invitation_says_who_sent_it_and_where_it_goes():
     inviter = SimpleNamespace(first_name="Ada", last_name="Lovelace", username="ada")
     text = mail.as_text(
