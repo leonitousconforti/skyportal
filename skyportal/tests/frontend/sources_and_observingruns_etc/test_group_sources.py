@@ -142,6 +142,20 @@ def test_request_source(
     assert status == 200
     assert data["data"]["id"] == f"{obj_id}"
 
+    saved_id = str(uuid.uuid4())
+    status, data = api(
+        "POST",
+        "sources",
+        data={
+            "id": saved_id,
+            "ra": 234.22,
+            "dec": -22.33,
+            "group_ids": [public_group2.id],
+        },
+        token=upload_data_token_two_groups,
+    )
+    assert status == 200
+
     page.goto(f"/group_sources/{public_group2.id}")
     # The source is in group1 only, so it must not appear on group2's page yet.
     expect(
@@ -167,6 +181,16 @@ def test_request_source(
     ).to_be_visible()
     expect(page.locator("//*[text()[contains(., 'Save')]]").first).to_be_visible()
     expect(page.locator("//*[text()[contains(., 'Ignore')]]").first).to_be_visible()
+
+    # The pending table's download holds the requested source, not the saved one.
+    with page.expect_download() as download_info:
+        page.locator(
+            "//*[@data-testid='source_table_Requested to save']"
+            "//button[@aria-label='Download CSV']"
+        ).first.click()
+    csv = download_info.value.path().read_text()
+    assert obj_id in csv
+    assert saved_id not in csv
 
 
 def test_sources_sorting(page, super_admin_user, public_group, upload_data_token):
