@@ -1739,7 +1739,7 @@ class SpectrumRangeHandler(BaseHandler):
 
 
 class SyntheticPhotometryHandler(BaseHandler):
-    @auth_or_token
+    @permissions(["Upload data"])
     async def post(self, spectrum_id: int, *, body: SyntheticPhotometryPostBody = None):
         """
         ---
