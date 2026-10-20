@@ -57,7 +57,7 @@ const spectrumToCsv = (spectrum: any) =>
     (spectrum.wavelengths ?? []).map((wavelength: number, i: number) => ({
       wavelength,
       flux: spectrum.fluxes[i],
-      ...(spectrum.fluxerr ? { fluxerr: spectrum.fluxerr[i] } : {}),
+      ...(spectrum.errors ? { fluxerr: spectrum.errors[i] } : {}),
     })),
   );
 
