@@ -715,14 +715,14 @@ async def process_event_filter(
     else:
         # Fallback for providers with no filter support: an unfiltered positional
         # query. Correct, but noisier -- nothing rejects artifacts or asteroids.
+        # These providers ignore radius_units and read radius in arcsec.
         alerts = (
             broker.broker_class.query_alerts(
                 broker,
                 session,
                 ra=ra0,
                 dec=dec0,
-                radius=radius,
-                radius_units="deg",
+                radius=radius * 3600,
                 jd_start=jd_start,
                 jd_end=jd_end,
                 permissions=permissions,

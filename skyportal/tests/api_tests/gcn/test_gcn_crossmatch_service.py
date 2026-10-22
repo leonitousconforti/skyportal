@@ -245,6 +245,26 @@ def test_crossmatch_passes_event_groups_and_epoch_window(
     assert all(k["jd_start"] < event_jd < k["jd_end"] for k in calls), calls
 
 
+def test_crossmatch_passes_the_cone_radius_in_arcsec(
+    broker,
+    crossmatch_filter,
+    crossmatch_event,
+    monkeypatch,
+):
+    """Providers without filter support read radius in arcsec, not radius_units."""
+    _, _, ra, dec = crossmatch_event
+    recorded = {}
+    _stub_provider(monkeypatch, [], recorded, ra, dec)
+
+    asyncio.run(run_cycle({"archival": False}))
+
+    calls = _calls_at(recorded, "query_kwargs", ra)
+    assert calls, recorded
+    assert all(k.get("radius_units", "arcsec") == "arcsec" for k in calls), calls
+    # the cone covers at least the 1 sigma error, which is ERROR deg
+    assert all(k["radius"] > ERROR * 3600 for k in calls), calls
+
+
 def test_crossmatch_records_state_and_annotation(
     broker,
     crossmatch_filter,
