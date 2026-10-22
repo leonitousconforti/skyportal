@@ -1,14 +1,14 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Dialog from "@mui/material/Dialog";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
+import { skipToken } from "@reduxjs/toolkit/query";
 
 import SurveyEfficiencyForm from "./SurveyEfficiencyForm";
 import SurveyEfficiencyObservationPlanLists from "./SurveyEfficiencyObservationPlanLists";
 
-import { GET } from "../../API";
 import Button from "../Button";
-import { useAppDispatch } from "../../types/hooks";
+import { useGetObservationPlanSurveyEfficiencyQuery } from "../../ducks/survey_efficiency_observation_plans";
 
 interface AddSurveyEfficiencyObservationPlanPageProps {
   gcnevent: {
@@ -29,12 +29,13 @@ const AddSurveyEfficiencyObservationPlanPage = ({
   observationplanRequest,
 }: AddSurveyEfficiencyObservationPlanPageProps) => {
   const [dialogOpen, setDialogOpen] = useState(false);
-  const dispatch = useAppDispatch();
 
-  const [
-    fetchingSurveyEfficiencyAnalysisList,
-    setFetchingSurveyEfficiencyAnalysisList,
-  ] = useState(false);
+  const planID =
+    observationplanRequest?.status === "complete"
+      ? observationplanRequest.id
+      : undefined;
+  const { data: surveyEfficiencyAnalysisList } =
+    useGetObservationPlanSurveyEfficiencyQuery(planID ?? skipToken);
 
   const openDialog = () => {
     setDialogOpen(true);
@@ -43,30 +44,6 @@ const AddSurveyEfficiencyObservationPlanPage = ({
   const closeDialog = () => {
     setDialogOpen(false);
   };
-
-  const [surveyEfficiencyAnalysisList, setSurveyEfficiencyAnalysisList] =
-    useState<any>(null);
-  useEffect(() => {
-    const fetchSurveyEfficiencyAnalysisList = async () => {
-      setFetchingSurveyEfficiencyAnalysisList(true);
-      dispatch(
-        GET(
-          `/api/observation_plan/${observationplanRequest.id}/survey_efficiency`,
-          "skyportal/FETCH_OBSERVATION_PLAN_SURVEY_EFFICIENCY",
-        ),
-      ).then((response: any) => {
-        setSurveyEfficiencyAnalysisList(response.data);
-        setFetchingSurveyEfficiencyAnalysisList(false);
-      });
-    };
-    if (
-      !fetchingSurveyEfficiencyAnalysisList &&
-      !surveyEfficiencyAnalysisList &&
-      observationplanRequest?.status === "complete"
-    ) {
-      fetchSurveyEfficiencyAnalysisList();
-    }
-  }, [dispatch, surveyEfficiencyAnalysisList, observationplanRequest]);
 
   return (
     <>
@@ -86,7 +63,7 @@ const AddSurveyEfficiencyObservationPlanPage = ({
               gcnevent={gcnevent}
               observationplanRequest={observationplanRequest}
             />
-            {surveyEfficiencyAnalysisList?.length > 0 && (
+            {!!surveyEfficiencyAnalysisList?.length && (
               <SurveyEfficiencyObservationPlanLists
                 survey_efficiency_analyses={surveyEfficiencyAnalysisList}
               />
