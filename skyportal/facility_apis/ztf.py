@@ -1232,14 +1232,19 @@ class ZTFMMAAPI(MMAAPI):
 
 
 MIN_EXPOSURES_FOR_QUADRANTS = 100
+MISSING_QUADRANTS_MAX_AGE_DAYS = 3
 
 
 def update_missing_quadrants(instrument_id, nights):
-    """nights: (number of exposures, set of rcids processed) per night, oldest first."""
-    nights = [n for n in nights if n[0] >= MIN_EXPOSURES_FOR_QUADRANTS]
+    """nights: (jd, number of exposures, set of rcids processed) per night, oldest first."""
+    # Only a night in the default 3-day fetch window says which quadrants are dead now
+    min_jd = np.floor(Time.now().jd - MISSING_QUADRANTS_MAX_AGE_DAYS)
+    nights = [
+        n for n in nights if n[0] >= min_jd and n[1] >= MIN_EXPOSURES_FOR_QUADRANTS
+    ]
     if not nights:
         return
-    missing = sorted(set(range(64)) - nights[-1][1])
+    missing = sorted(set(range(64)) - nights[-1][2])
 
     from ..models import Instrument, new_session
 
@@ -1295,6 +1300,7 @@ def fetch_depot_observations(instrument_id, session, depot_url, jd_start, jd_end
             if "rcid" in obstable:
                 nights.append(
                     (
+                        jd,
                         obstable["exposure_id"].nunique(),
                         set(obstable.pop("rcid").astype(int)),
                     )
@@ -1381,6 +1387,7 @@ def fetch_depot_observations(instrument_id, session, depot_url, jd_start, jd_end
                 if "rcid" in obstable:
                     nights.append(
                         (
+                            jd,
                             obstable["expid"].nunique(),
                             set(obstable.pop("rcid").astype(int)),
                         )
