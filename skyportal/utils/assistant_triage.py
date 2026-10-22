@@ -11,27 +11,48 @@ as a notification and a skybot thread message; nothing is written to the source,
 and the classifier's own result stays authoritative. Personal one-off schedules
 stay in RecurringAPI; this is the shared, subscribable kind.
 
-Needs a bot user named ``skybot`` (a member of the notify/query groups). Absent
-it, triage is skipped.
+Needs a bot user named ``skybot`` (a member of the notify/query groups) with no
+email, OAuth identity or API token (see SKYBOT). Absent it, triage is skipped.
 """
 
 import sqlalchemy as sa
 
+from baselayer.app.env import load_env
 from baselayer.log import make_log
 
 from ..models import (
     AssistantMessage,
     AssistantQuery,
     AssistantQuerySubscription,
+    Group,
     GroupUser,
     Source,
+    Token,
     User,
 )
 from .assistant import is_enabled
 
+_, cfg = load_env()
 log = make_log("assistant_triage")
 
 SKYBOT_USERNAME = "skybot"
+# The assistant service answers skybot's messages in these channels with the
+# query owner's access, so the API refuses them for anyone else's messages.
+QUERY_CHANNEL_PREFIX = "query:"
+
+_social_auth = sa.table("social_auth_usersocialauth", sa.column("user_id"))
+# An account nobody can sign in to or act as: no OAuth identity, no email that
+# a sign-in could be matched to, and no API token.
+NO_SIGN_IN = sa.and_(
+    User.oauth_uid.is_(None),
+    User.contact_email.is_(None),
+    ~sa.exists().where(_social_auth.c.user_id == User.id),
+    ~sa.exists().where(Token.created_by_id == User.id),
+)
+# skybot's runs read with their query owner's access and its account can read
+# the answers back, so the name alone is not enough: anyone could take it
+# before skybot is provisioned.
+SKYBOT = sa.and_(User.username == SKYBOT_USERNAME, User.is_bot.is_(True), NO_SIGN_IN)
 
 # Appended to every query run so the answer ends with a machine-readable urgency
 # marker; the assistant service posts the comment either way but only notifies
@@ -104,9 +125,15 @@ async def _recipients(session, query):
     )
     notify_member_ids = set()
     for gid in query.notify_groups or []:
+        # skipped for the sitewide group, which every user is in
         notify_member_ids |= set(
             await session.scalars(
-                sa.select(GroupUser.user_id).where(GroupUser.group_id == int(gid))
+                sa.select(GroupUser.user_id)
+                .join(Group, Group.id == GroupUser.group_id)
+                .where(
+                    GroupUser.group_id == int(gid),
+                    Group.name != cfg["misc.public_group_name"],
+                )
             )
         )
     return combine_recipients(subscriber_ids, group_member_ids, notify_member_ids)
@@ -123,13 +150,11 @@ async def enqueue_query_run(session, analysis, query) -> int | None:
     -- on the page where everyone else can see it. Saying nothing is the better
     failure.
     """
-    skybot = await session.scalar(
-        sa.select(User).where(User.username == SKYBOT_USERNAME, User.is_bot.is_(True))
-    )
+    skybot = await session.scalar(sa.select(User).where(SKYBOT))
     if skybot is None:
         log(
-            f"no bot user named {SKYBOT_USERNAME!r}; skipping query {query.id} "
-            f"for {analysis.obj_id}"
+            f"no {SKYBOT_USERNAME!r} bot that nobody can sign in to; skipping "
+            f"query {query.id} for {analysis.obj_id}"
         )
         return None
     reads_the_group = await session.scalar(
@@ -166,7 +191,7 @@ async def enqueue_query_run(session, analysis, query) -> int | None:
     message = AssistantMessage(
         user_id=skybot.id,
         text=query.prompt + NOTIFY_SUFFIX,
-        channel=f"query:{query.id}:{analysis.obj_id}",
+        channel=f"{QUERY_CHANNEL_PREFIX}{query.id}:{analysis.obj_id}",
         context_type=query.context_type or "source",
         context_id=analysis.obj_id,
         notify=notify,

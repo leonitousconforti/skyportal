@@ -2,10 +2,13 @@ import sqlalchemy as sa
 from pydantic import BaseModel, ConfigDict, Field
 
 from baselayer.app.access import auth_or_token
+from baselayer.app.env import load_env
 
-from ...models import AssistantQuery, AssistantQuerySubscription, GroupUser
+from ...models import AssistantQuery, AssistantQuerySubscription, Group, GroupUser
 from ...utils.data_access import accessible_group_ids_async
 from ..base import BaseHandler
+
+_, cfg = load_env()
 
 
 class AssistantQueryPostBody(BaseModel):
@@ -52,9 +55,12 @@ class AssistantQueryPatchBody(BaseModel):
 async def _can_notify(user_or_token, session, group_ids):
     if not group_ids:
         return True
-    return set(group_ids) <= set(
-        await accessible_group_ids_async(user_or_token, session)
+    # Every user is in the sitewide group, so notifying it would reach everyone.
+    sitewide = await session.scalar(
+        sa.select(Group.id).where(Group.name == cfg["misc.public_group_name"])
     )
+    allowed = set(await accessible_group_ids_async(user_or_token, session))
+    return set(group_ids) <= allowed - {sitewide}
 
 
 def _serialize(query, subscriber_ids, user_id):
@@ -150,7 +156,9 @@ class AssistantQueryHandler(BaseHandler):
                 )
             if not await _can_notify(self.current_user, session, body.notify_groups):
                 return self.error(
-                    "You can only notify groups you are a member of.", status=403
+                    "You can only notify groups you are a member of, other than "
+                    "the sitewide group.",
+                    status=403,
                 )
             query = AssistantQuery(
                 owner_id=user_id,
@@ -194,7 +202,9 @@ class AssistantQueryHandler(BaseHandler):
                 self.current_user, session, updates.get("notify_groups")
             ):
                 return self.error(
-                    "You can only notify groups you are a member of.", status=403
+                    "You can only notify groups you are a member of, other than "
+                    "the sitewide group.",
+                    status=403,
                 )
             for field, value in updates.items():
                 setattr(query, field, value)

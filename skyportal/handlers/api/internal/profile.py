@@ -22,6 +22,7 @@ from ....models import (
     User,
 )
 from ....utils.assistant import SERVICE_TOKEN_PREFIX
+from ....utils.assistant_triage import SKYBOT_USERNAME
 from ...base import BaseHandler
 
 
@@ -159,6 +160,9 @@ class ProfileHandler(BaseHandler):
                 username = body.username.strip()
                 if len(username) < 5:
                     return self.error("Username must be at least five characters long.")
+                # usernames are stored slugified, so compare that form
+                if slugify(username) == SKYBOT_USERNAME:
+                    return self.error(f"The username {SKYBOT_USERNAME} is reserved.")
                 user.username = username
                 single_user_group_id = await session.scalar(
                     sa.select(Group.id)

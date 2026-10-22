@@ -21,6 +21,7 @@ from skyportal.models import (
     Comment,
     DBSession,
     Filter,
+    Group,
     GroupUser,
     Token,
     User,
@@ -39,7 +40,7 @@ from skyportal.utils.assistant import (
     record_call,
     targets_page_filter,
 )
-from skyportal.utils.assistant_triage import SKYBOT_USERNAME
+from skyportal.utils.assistant_triage import SKYBOT
 
 _, cfg = load_env()
 log = make_log("assistant")
@@ -271,12 +272,23 @@ def service_token(session, user_id):
     return token
 
 
-def requester_of(session, message, user):
+def query_of(session, message):
+    """The id of the query a skybot run answers, or None for any other message."""
     match = re.fullmatch(r"query:(\d+):.+", message.channel or "")
-    if match is None or not (user.is_bot and user.username == SKYBOT_USERNAME):
+    if match is None:
+        return None
+    skybot = session.scalar(
+        sa.select(User.id).where(User.id == message.user_id, SKYBOT)
+    )
+    return None if skybot is None else int(match[1])
+
+
+def requester_of(session, message):
+    query_id = query_of(session, message)
+    if query_id is None:
         return message.user_id
     return session.scalar(
-        sa.select(AssistantQuery.owner_id).where(AssistantQuery.id == int(match[1]))
+        sa.select(AssistantQuery.owner_id).where(AssistantQuery.id == query_id)
     )
 
 
@@ -404,11 +416,14 @@ def post_triage_comment(session, author_id, notify, context_type, context_id, an
     )
 
 
-def deliver_notifications(session, author_id, notify, context_type, context_id, answer):
+def deliver_notifications(
+    session, author_id, notify, context_type, context_id, answer, query_run=False
+):
     """Notify the recipients a task run named, with its answer.
 
-    Groups expand to their members; a named user must share a group with the
-    author, so a run cannot notify people outside the author's groups.
+    Groups expand to their members. Outside skybot's query runs, a named user
+    must share a group other than the sitewide one with the author, so a run
+    cannot notify people outside the author's groups.
     """
     if not isinstance(notify, dict):
         return
@@ -422,16 +437,21 @@ def deliver_notifications(session, author_id, notify, context_type, context_id, 
     wanted.discard(author_id)
     if not wanted:
         return
-    author = session.scalar(sa.select(User).where(User.id == author_id))
-    if author is not None and author.is_bot:
-        # A bot's recipients were resolved and authorised by the triggering query
-        # (its subscribers, in its group), so deliver to them directly.
+    if query_run:
+        # The triggering query resolved and authorised these recipients (its
+        # subscribers, in its group), so deliver to them directly.
         allowed = wanted
     else:
-        # A person's run may only notify people they share a group with.
+        # Anyone else's run may only notify people they share a group with; every
+        # user is in the sitewide group, so it does not count.
         author_groups = set(
             session.scalars(
-                sa.select(GroupUser.group_id).where(GroupUser.user_id == author_id)
+                sa.select(GroupUser.group_id)
+                .join(Group, Group.id == GroupUser.group_id)
+                .where(
+                    GroupUser.user_id == author_id,
+                    Group.name != cfg["misc.public_group_name"],
+                )
             ).all()
         )
         allowed = set(
@@ -488,7 +508,8 @@ def respond(message_id):
                 "first_name": user.first_name,
                 "last_name": user.last_name,
             }
-            requester_id = requester_of(session, message, user)
+            query_run = query_of(session, message) is not None
+            requester_id = requester_of(session, message)
             if requester_id is None:
                 log(f"message {message_id} is for a query that is gone; not answering")
                 return
@@ -548,7 +569,13 @@ def respond(message_id):
                     )
                     if is_urgent:
                         deliver_notifications(
-                            session, user_id, notify, context_type, context_id, text
+                            session,
+                            user_id,
+                            notify,
+                            context_type,
+                            context_id,
+                            text,
+                            query_run=query_run,
                         )
             session.commit()
 

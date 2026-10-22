@@ -6,9 +6,9 @@ import sqlalchemy as sa
 
 from baselayer.app import models as baselayer_models
 from skyportal.model_util import create_token
-from skyportal.models import DBSession, Source
-from skyportal.tests import api, assert_api, assert_api_fail
-from skyportal.utils.assistant_triage import matching_queries
+from skyportal.models import DBSession, Group, Source
+from skyportal.tests import api, assert_api, assert_api_fail, cfg
+from skyportal.utils.assistant_triage import _recipients, matching_queries
 
 
 def _token(user):
@@ -147,6 +147,35 @@ def test_cannot_notify_a_group_youre_not_in(user, public_group, public_group2):
     assert data["data"]["notify_groups"] == [public_group.id]
 
     api("DELETE", f"assistant_queries/{query_id}", token=token)
+
+
+def test_cannot_notify_the_sitewide_group(user, public_group, user_group2):
+    sitewide_id = DBSession().scalar(
+        sa.select(Group.id).where(Group.name == cfg["misc.public_group_name"])
+    )
+    status, data = api(
+        "POST",
+        "assistant_queries",
+        data={
+            "name": "everyone",
+            "group_id": public_group.id,
+            "prompt": "triage",
+            "notify_groups": [sitewide_id],
+        },
+        token=_token(user),
+    )
+    assert_api_fail(status, data, 403, "other than the sitewide group")
+
+    # A query that already names it does not notify everyone either
+    query = SimpleNamespace(
+        id=-1, group_id=public_group.id, notify_groups=[sitewide_id]
+    )
+
+    async def recipients():
+        async with baselayer_models.async_plain_session_factory() as session:
+            return await _recipients(session, query)
+
+    assert user_group2.id not in asyncio.run(recipients())
 
 
 def test_cannot_create_in_a_group_youre_not_in(user, public_group2):
