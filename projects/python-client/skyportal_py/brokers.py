@@ -284,7 +284,6 @@ def fetch_broker_photometry(  # noqa: PLR0913 -- mirrors the endpoint's query pa
     survey: str | None = None,
     fmt: str = "mag",
     magsys: str = "ab",
-    refresh: bool = False,
 ) -> list[PhotometryPointResponse]:
     """Retrieve an object's photometry merged with the broker's.
 
@@ -308,13 +307,10 @@ def fetch_broker_photometry(  # noqa: PLR0913 -- mirrors the endpoint's query pa
         Photometry format, ``"mag"`` by default.
     magsys : str, optional
         Magnitude system, ``"ab"`` by default.
-    refresh : bool, optional
-        Bypass any cached broker payload and re-fetch.
     """
     params: dict[str, Any] = {
         "format": fmt,
         "magsys": magsys,
-        "refresh": refresh,
     }
     if survey is not None:
         params["survey"] = survey
@@ -325,14 +321,13 @@ def fetch_broker_photometry(  # noqa: PLR0913 -- mirrors the endpoint's query pa
     return [PhotometryPointResponse.model_validate(item) for item in unwrap(response)]
 
 
-def fetch_broker_survey_photometry(  # noqa: PLR0913 -- mirrors the endpoint's query parameters
+def fetch_broker_survey_photometry(
     client: httpx.Client,
     object_id: str,
     *,
     survey: str,
     fmt: str = "mag",
     magsys: str = "ab",
-    refresh: bool = False,
 ) -> list[PhotometryPointResponse]:
     """Retrieve an object's photometry via the survey's own broker.
 
@@ -353,14 +348,11 @@ def fetch_broker_survey_photometry(  # noqa: PLR0913 -- mirrors the endpoint's q
         Photometry format, ``"mag"`` by default.
     magsys : str, optional
         Magnitude system, ``"ab"`` by default.
-    refresh : bool, optional
-        Bypass any cached broker payload and re-fetch.
     """
     params: dict[str, Any] = {
         "survey": survey,
         "format": fmt,
         "magsys": magsys,
-        "refresh": refresh,
     }
     response = client.get(f"/api/brokers/photometry/{object_id}", params=params)
     return [PhotometryPointResponse.model_validate(item) for item in unwrap(response)]
