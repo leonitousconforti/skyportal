@@ -155,47 +155,6 @@ export const reduceToUnitGeometry = (
     );
   });
 
-const weightedMean = (x: number[], unc: number[]): [number, number] => {
-  let sw = 0;
-  let swx = 0;
-  x.forEach((xk, k) => {
-    const uk = unc[k]!;
-    if (Number.isFinite(xk) && Number.isFinite(uk) && uk > 0) {
-      const w = uk ** -2;
-      sw += w;
-      swx += w * xk;
-    }
-  });
-  return sw === 0 ? [NaN, NaN] : [swx / sw, sw ** -0.5];
-};
-
-// Colour offsets onto the (excluded) test point's band, from geometry-corrected m.
-export const colorScales = (
-  m: number[],
-  unc: number[],
-  bands: string[],
-): Record<string, number> => {
-  const target = bands[bands.length - 1]!;
-  const unique = Array.from(new Set(bands));
-  const avg: Record<string, number> = {};
-  unique.forEach((band) => {
-    const xs: number[] = [];
-    const us: number[] = [];
-    bands.forEach((b, k) => {
-      if (b === band && k !== bands.length - 1) {
-        xs.push(m[k]!);
-        us.push(unc[k]!);
-      }
-    });
-    avg[band] = weightedMean(xs, us)[0];
-  });
-  const color: Record<string, number> = {};
-  unique.forEach((band) => {
-    color[band] = band === target ? 0 : avg[band]! - avg[target]!;
-  });
-  return color;
-};
-
 // Reference band when several are equally well observed, best first.
 const REFERENCE_PREFERENCE = ["r", "g", "i", "z", "y", "u"];
 

@@ -1,4 +1,3 @@
-import inspect
 from enum import Enum
 
 import astropy.units as u
@@ -156,9 +155,6 @@ allowed_spectrum_types = sa.Enum(
 )
 default_spectrum_type = cfg["spectrum_types.default"]
 
-allowed_magsystems = sa.Enum(
-    *ALLOWED_MAGSYSTEMS, name="magsystems", validate_strings=True
-)
 allowed_bandpasses = sa.Enum(
     *ALLOWED_BANDPASSES, name="bandpasses", validate_strings=True
 )
@@ -203,17 +199,9 @@ broker_classnames = sa.Enum(
     validate_strings=True,
 )
 
-py_allowed_spectrum_types = Enum("spectrumtypes", ALLOWED_SPECTRUM_TYPES)
 py_allowed_magsystems = Enum("magsystems", ALLOWED_MAGSYSTEMS)
 py_allowed_bandpasses = Enum("bandpasses", ALLOWED_BANDPASSES)
-py_thumbnail_types = Enum("thumbnail_types", THUMBNAIL_TYPES)
 py_followup_priorities = Enum("priority", FOLLOWUP_PRIORITIES)
-py_allowed_analysis_types = Enum("analysistypes", ANALYSIS_TYPES)
-py_allowed_analysis_input_types = Enum("analysisinputtypes", ANALYSIS_INPUT_TYPES)
-py_allowed_external_authentication_types = Enum(
-    "authenticationtypes", AUTHENTICATION_TYPES
-)
-py_allowed_webbook_status_types = Enum("webhookstatustypes", WEBHOOK_STATUS_TYPES)
 
 
 sqla_enum_types = [
