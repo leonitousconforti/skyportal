@@ -13,6 +13,7 @@ import {
   useFetchSavedGroupSourcesQuery,
   useFetchPendingGroupSourcesQuery,
   useLazyFetchSavedGroupSourcesQuery,
+  useLazyFetchPendingGroupSourcesQuery,
 } from "../../ducks/sources";
 import { Box } from "@mui/material";
 
@@ -28,8 +29,6 @@ const GroupSources = ({ route }: GroupSourcesProps) => {
   const [savedSourcesRowsPerPage, setSavedSourcesRowsPerPage] = useState(25);
   const [pendingSourcesRowsPerPage, setPendingSourcesRowsPerPage] =
     useState(25);
-  const [sorting, setSorting] = useState<any>(null);
-  const [filtering, setFiltering] = useState<any>(null);
   const [downloadProgressCurrent, setDownloadProgressCurrent] = useState(0);
   const [downloadProgressTotal, setDownloadProgressTotal] = useState(0);
 
@@ -49,6 +48,8 @@ const GroupSources = ({ route }: GroupSourcesProps) => {
   const { data: pendingSourcesState } =
     useFetchPendingGroupSourcesQuery(pendingQueryParams);
   const [fetchSavedGroupSourcesTrigger] = useLazyFetchSavedGroupSourcesQuery();
+  const [fetchPendingGroupSourcesTrigger] =
+    useLazyFetchPendingGroupSourcesQuery();
 
   if (
     !savedSourcesState?.sources ||
@@ -91,8 +92,6 @@ const GroupSources = ({ route }: GroupSourcesProps) => {
       data.sortOrder = sortData.direction;
     }
     setSavedQueryParams(data);
-    setSorting(sortData);
-    setFiltering(filterData);
   };
 
   const handlePendingSourcesTableSorting = (sortData: any, filterData: any) => {
@@ -104,8 +103,6 @@ const GroupSources = ({ route }: GroupSourcesProps) => {
       sortBy: sortData.name,
       sortOrder: sortData.direction,
     });
-    setSorting(sortData);
-    setFiltering(filterData);
   };
 
   const handlePendingSourcesTablePagination = (
@@ -128,37 +125,33 @@ const GroupSources = ({ route }: GroupSourcesProps) => {
     setPendingQueryParams(data);
   };
 
-  const handleSourcesDownload = async () => {
+  // queryParams carries the table's current group, sort and filters.
+  const handleSourcesDownload = async (
+    fetchTrigger: typeof fetchSavedGroupSourcesTrigger,
+    sourcesState: any,
+    queryParams: any,
+  ) => {
     const sourceAll: any[] = [];
-    if (savedSourcesState.totalMatches === 0) {
+    if (sourcesState.totalMatches === 0) {
       await dispatch(showNotification("No sources to download", "warning"));
     } else {
-      setDownloadProgressTotal(savedSourcesState.totalMatches);
+      setDownloadProgressTotal(sourcesState.totalMatches);
       for (
         let i = 1;
-        i <=
-        Math.ceil(
-          savedSourcesState.totalMatches / savedSourcesState.numPerPage,
-        );
+        i <= Math.ceil(sourcesState.totalMatches / sourcesState.numPerPage);
         i += 1
       ) {
         const data: any = {
-          ...filtering,
-          group_ids: [route.id],
+          ...queryParams,
           pageNumber: i,
-          numPerPage: savedSourcesState.numPerPage,
+          numPerPage: sourcesState.numPerPage,
         };
-        if (sorting) {
-          data.sortBy = sorting.name;
-          data.sortOrder = sorting.direction;
-        }
         /* eslint-disable no-await-in-loop */
         try {
-          const result: any =
-            await fetchSavedGroupSourcesTrigger(data).unwrap();
+          const result: any = await fetchTrigger(data).unwrap();
           sourceAll.push(...result.sources);
           setDownloadProgressCurrent(sourceAll.length);
-          setDownloadProgressTotal(savedSourcesState.totalMatches);
+          setDownloadProgressTotal(sourcesState.totalMatches);
         } catch {
           setDownloadProgressCurrent(0);
           setDownloadProgressTotal(0);
@@ -183,7 +176,7 @@ const GroupSources = ({ route }: GroupSourcesProps) => {
     }
     setDownloadProgressCurrent(0);
     setDownloadProgressTotal(0);
-    if (sourceAll?.length === savedSourcesState.totalMatches) {
+    if (sourceAll?.length === sourcesState.totalMatches) {
       dispatch(showNotification("Sources downloaded successfully"));
     }
     return sourceAll;
@@ -202,7 +195,13 @@ const GroupSources = ({ route }: GroupSourcesProps) => {
           totalMatches={savedSourcesState.totalMatches}
           numPerPage={savedSourcesState.numPerPage}
           sortingCallback={handleSavedSourcesTableSorting}
-          downloadCallback={handleSourcesDownload}
+          downloadCallback={() =>
+            handleSourcesDownload(
+              fetchSavedGroupSourcesTrigger,
+              savedSourcesState,
+              savedQueryParams,
+            )
+          }
         />
       )}
       {!!pendingSourcesState.sources && (
@@ -216,7 +215,13 @@ const GroupSources = ({ route }: GroupSourcesProps) => {
           totalMatches={pendingSourcesState.totalMatches}
           numPerPage={pendingSourcesState.numPerPage}
           sortingCallback={handlePendingSourcesTableSorting}
-          downloadCallback={handleSourcesDownload}
+          downloadCallback={() =>
+            handleSourcesDownload(
+              fetchPendingGroupSourcesTrigger,
+              pendingSourcesState,
+              pendingQueryParams,
+            )
+          }
         />
       )}
       <DownloadProgressDialog
