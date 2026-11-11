@@ -23,48 +23,6 @@ export const useDialogStates = () => {
   });
   const [mongoDialog, setMongoDialog] = useState({ open: false });
 
-  // Reset all dialog states
-  const resetDialogs = useCallback(() => {
-    setSaveDialog({ open: false, block: null });
-    setSaveName("");
-    setSaveError("");
-    setSpecialConditionDialog({ open: false, blockId: null });
-    setListConditionDialog({ open: false, blockId: null });
-    setSwitchDialog({ open: false, blockId: null });
-    setMongoDialog({ open: false });
-  }, []);
-
-  // Individual dialog actions
-  const openSaveDialog = useCallback((block) => {
-    setSaveDialog({ open: true, block });
-  }, []);
-
-  const closeSaveDialog = useCallback(() => {
-    setSaveDialog({ open: false, block: null });
-    setSaveName("");
-    setSaveError("");
-  }, []);
-
-  const openSpecialConditionDialog = useCallback((blockId) => {
-    setSpecialConditionDialog({ open: true, blockId });
-  }, []);
-
-  const closeSpecialConditionDialog = useCallback(() => {
-    setSpecialConditionDialog({ open: false, blockId: null });
-  }, []);
-
-  const openListConditionDialog = useCallback((blockId) => {
-    setListConditionDialog({ open: true, blockId });
-  }, []);
-
-  const closeListConditionDialog = useCallback(() => {
-    setListConditionDialog({ open: false, blockId: null });
-  }, []);
-
-  const openSwitchDialog = useCallback((blockId) => {
-    setSwitchDialog({ open: true, blockId });
-  }, []);
-
   const closeSwitchDialog = useCallback(() => {
     setSwitchDialog({ open: false, blockId: null });
   }, []);
@@ -80,16 +38,9 @@ export const useDialogStates = () => {
     mongoDialog,
 
     // Dialog actions
-    openSaveDialog,
-    closeSaveDialog,
     setSaveDialog, // Direct state setter for save dialog
-    openSpecialConditionDialog,
-    closeSpecialConditionDialog,
     setSpecialConditionDialog, // Direct state setter for complex updates
-    openListConditionDialog,
-    closeListConditionDialog,
     setListConditionDialog, // Direct state setter for complex updates
-    openSwitchDialog,
     closeSwitchDialog,
     setSwitchDialog, // Direct state setter for complex updates
 
@@ -97,7 +48,6 @@ export const useDialogStates = () => {
     setSaveName,
     setSaveError,
     setMongoDialog,
-    resetDialogs,
   };
 };
 
