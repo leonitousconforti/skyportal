@@ -1,3 +1,4 @@
+import csv
 import uuid
 
 from playwright.sync_api import expect
@@ -176,3 +177,39 @@ def test_spectrum_redshift_slider_does_not_crash(
     # and nothing threw.
     expect(redshift_input).to_be_visible()
     assert not errors, f"Spectrum redshift slider raised an error: {errors}"
+
+
+def test_spectrum_csv_download_includes_errors(
+    page, user, upload_data_token, public_source, lris
+):
+    status, data = api(
+        "POST",
+        "spectrum",
+        data={
+            "obj_id": str(public_source.id),
+            "observed_at": "2021-11-02 12:00:00",
+            "instrument_id": lris.id,
+            "wavelengths": [664, 665, 666],
+            "fluxes": [234.2, 232.1, 235.3],
+            "errors": [1.5, 1.6, 1.7],
+        },
+        token=upload_data_token,
+    )
+    assert status == 200
+    spectrum_id = data["data"]["id"]
+
+    page.goto(f"/become_user/{user.id}")
+    page.goto(f"/share_data/{public_source.id}")
+
+    # with no uploaded file, the CSV is built from the spectrum's arrays
+    with page.expect_download() as download_info:
+        page.locator(
+            "//*[@data-testid='spectrum-table']"
+            f"//div[@role='row' and @data-id='{spectrum_id}']"
+            "//div[@data-field='download']//button"
+        ).click()
+
+    with open(download_info.value.path(), newline="") as f:
+        rows = list(csv.reader(f))
+    assert rows[0] == ["wavelength", "flux", "fluxerr"]
+    assert float(rows[1][2]) == 1.5

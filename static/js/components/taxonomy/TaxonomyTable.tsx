@@ -222,7 +222,11 @@ const TaxonomyTable = ({
         <DialogTitle>Taxonomy Content</DialogTitle>
         <DialogContent dividers>
           <ReactJson
-            src={taxonomies[taxonomyToViewEditDelete]?.hierarchy || {}}
+            src={
+              taxonomies.find(
+                (taxonomy) => taxonomy.id === taxonomyToViewEditDelete,
+              )?.hierarchy || {}
+            }
             name={false}
             displayDataTypes={false}
             displayObjectSize={false}
