@@ -1,5 +1,6 @@
 import os
 import uuid
+from datetime import datetime, timedelta
 
 import numpy as np
 
@@ -64,6 +65,10 @@ def test_earthquake_predictions_and_measurements(super_admin_token, view_only_to
     # body waves arrive long before the 2 km/s surface wave
     assert predictions[0]["p"] < predictions[0]["r2p0"]
     assert predictions[0]["s"] < predictions[0]["r2p0"]
+    # S (here SKS) trails P by 10.6 min, vs 7.4 min for PKIKS and 3 s for sPdiff
+    p = datetime.fromisoformat(predictions[0]["p"])
+    s = datetime.fromisoformat(predictions[0]["s"])
+    assert s - p > timedelta(minutes=9)
     measurements = data["measurements"]
     assert np.isclose(measurements[0]["rfamp"], 1e-5)
     assert measurements[0]["lockloss"] == 1

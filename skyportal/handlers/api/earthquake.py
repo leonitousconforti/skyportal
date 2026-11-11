@@ -574,9 +574,13 @@ def compute_traveltimes(earthquake, detector):
         Ptime = -1
         Stime = -1
         for phase in arrivals:
-            if Ptime == -1 and phase.name.lower()[0] == "p":
+            # skip phases that convert between P and S on the way, like sP or PcS
+            leg = phase.name.removesuffix("diff")[-1].lower()
+            if phase.name[0].lower() != leg:
+                continue
+            if Ptime == -1 and leg == "p":
                 Ptime = eqtime + TimeDelta(phase.time * u.s)
-            if Stime == -1 and phase.name.lower()[0] == "s":
+            if Stime == -1 and leg == "s":
                 Stime = eqtime + TimeDelta(phase.time * u.s)
     except TauModelError:
         Ptime, Stime = Rtwotime, Rtwotime
