@@ -1499,8 +1499,9 @@ class AnalysisHandler(BaseHandler):
                 connection = await session.scalar(
                     sa.select(AIConnection).where(AIConnection.user_id == user_id)
                 )
-                # A personal key goes only to its owner's base_url, or OpenAI,
-                # checked at each use as the host may resolve elsewhere now.
+                # A personal key goes only to its owner's base_url, or their
+                # provider's default endpoint, checked at each use as the host
+                # may resolve elsewhere now.
                 try:
                     user_settings = await IOLoop.current().run_in_executor(
                         None, user_summarizer, connection, user.preferences

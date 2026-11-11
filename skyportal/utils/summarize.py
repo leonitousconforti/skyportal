@@ -1,6 +1,7 @@
 """Ask the model named by `analysis_services.openai_analysis_service.summary`.
 
-Any server speaking the OpenAI chat-completions protocol works, via `base_url`.
+Any server speaking the OpenAI chat-completions protocol works, via `base_url`,
+and a user's Anthropic connection is asked through Anthropic's own API.
 Kept apart from the obj analysis service, which cannot carry a GcnEvent.
 """
 
@@ -11,6 +12,7 @@ import copy
 from baselayer.app.env import load_env
 from baselayer.log import make_log
 
+from . import anthropic_chat
 from .user_url import check_user_base_url
 
 env, cfg = load_env()
@@ -45,22 +47,35 @@ def user_summarizer(connection, preferences):
     base_url, with their summary tuning from `preferences`.
 
     Raises ValueError when that base_url fails `check_user_base_url`, rerun at
-    each use since its host can resolve elsewhere than when it was saved.
+    each use since its host can resolve elsewhere than when it was saved, or
+    when an Anthropic connection names no model.
     """
-    if connection is None or connection.provider != "openai_compatible":
+    if connection is None or connection.provider not in (
+        "openai_compatible",
+        "anthropic",
+    ):
         return None
     api_key = connection.api_key
     if not api_key:
         return None
     tuning = ((preferences or {}).get("summary") or {}).get("OpenAI") or {}
     settings = {k: tuning[k] for k in SUMMARY_TUNING if tuning.get(k) is not None}
-    # The connection's model is the one entered beside the provider it is for.
-    model = connection.model or settings.get("model") or _config().get("model")
+    if connection.provider == "anthropic":
+        # The summary settings and the instance default name OpenAI models.
+        model = connection.model
+        if not model:
+            raise ValueError(
+                "Set a model in your AI connection to summarize with Anthropic"
+            )
+    else:
+        # The connection's model is the one entered beside the provider it is for.
+        model = connection.model or settings.get("model") or _config().get("model")
     if model:
         settings["model"] = model
     base_url = connection.base_url
     return {
         **settings,
+        "provider": connection.provider,
         "api_key": api_key,
         "base_url": check_user_base_url(base_url) if base_url else None,
     }
@@ -72,6 +87,23 @@ def summarize(prompt, context, timeout=60, settings=None):
     api_key = settings.get("api_key")
     if not api_key:
         return None
+    content = f"{prompt}\n'''\n{context}\n'''"
+
+    if settings.get("provider") == "anthropic":
+        # Sampling and max_tokens settings do not apply to Claude.
+        try:
+            text = anthropic_chat.summary(
+                api_key,
+                settings.get("base_url"),
+                settings["model"],
+                SYSTEM_PROMPT,
+                content,
+                timeout,
+            )
+        except Exception as e:
+            log(f"summarization failed: {e}")
+            return None
+        return text
 
     try:
         from openai import DefaultHttpxClient, OpenAI
@@ -86,7 +118,7 @@ def summarize(prompt, context, timeout=60, settings=None):
         response = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"{prompt}\n'''\n{context}\n'''"},
+                {"role": "user", "content": content},
             ],
             model=settings.get("model") or "gpt-4o-mini",
             temperature=settings.get("temperature", 0.3),

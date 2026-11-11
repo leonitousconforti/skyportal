@@ -27,3 +27,8 @@ def test_another_providers_key_is_never_sent_to_openai():
     )
     assert requester_embedding_key(_connection(provider="another_protocol")) is None
     assert requester_embedding_key(None) is None
+
+
+def test_an_anthropic_key_is_never_sent_to_openai():
+    # Its base_url is null too, which means api.anthropic.com, not OpenAI.
+    assert requester_embedding_key(_connection(provider="anthropic")) is None

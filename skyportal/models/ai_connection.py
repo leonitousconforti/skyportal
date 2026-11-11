@@ -16,7 +16,7 @@ from baselayer.app.models import AccessibleIfUserMatches, Base
 _, cfg = load_env()
 
 # Kept as a plain string column so adding a provider needs no migration.
-PROVIDERS = ("openai_compatible",)
+PROVIDERS = ("openai_compatible", "anthropic")
 
 
 class AIConnection(Base):
@@ -37,14 +37,14 @@ class AIConnection(Base):
     provider = sa.Column(
         sa.String,
         nullable=False,
-        doc="The API the connection speaks, such as openai_compatible.",
+        doc="The API the connection speaks: openai_compatible or anthropic.",
     )
 
     base_url = sa.Column(
         sa.String,
         nullable=True,
         doc="Where requests and the key are sent. Null means the provider's "
-        "default endpoint (api.openai.com for openai_compatible).",
+        "default endpoint.",
     )
 
     model = sa.Column(

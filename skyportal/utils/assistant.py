@@ -4,8 +4,10 @@ import re
 import threading
 import time
 
+import anthropic
 import requests
 
+from . import anthropic_chat
 from .user_url import check_user_base_url
 
 SYSTEM_PROMPT = """You are an assistant inside SkyPortal, a data platform for \
@@ -133,6 +135,10 @@ def user_keys_allowed(cfg):
 
 # Where an openai_compatible connection without a base_url is sent.
 OPENAI_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_BASE_URLS = {
+    "openai_compatible": OPENAI_BASE_URL,
+    "anthropic": anthropic_chat.DEFAULT_BASE_URL,
+}
 
 
 def user_endpoint(connection):
@@ -140,13 +146,14 @@ def user_endpoint(connection):
 
     It still has to pass `check_user_endpoint` right before use.
     """
-    if connection is None or connection.provider != "openai_compatible":
+    if connection is None or connection.provider not in DEFAULT_BASE_URLS:
         return None
     return {
-        "base_url": connection.base_url or OPENAI_BASE_URL,
+        "base_url": connection.base_url or DEFAULT_BASE_URLS[connection.provider],
         "model": connection.model or "",
         "api_key": connection.api_key or "",
         "user_key": True,
+        "provider": connection.provider,
     }
 
 
@@ -385,7 +392,10 @@ def chat_payload(model, messages, tools, thinking=False, user_key=False):
     chat_template_kwargs (OpenAI refuses unknown fields) nor a temperature
     (OpenAI's reasoning models and recent Claude models refuse one).
     """
-    payload = {"model": model, "messages": messages}
+    payload = {
+        "model": model,
+        "messages": [anthropic_chat.public(message) for message in messages],
+    }
     if not user_key:
         payload["temperature"] = 0
     if tools:
@@ -417,6 +427,10 @@ def _provider_error(response, api_key):
         error = error.get("message")
     if not isinstance(error, str):
         return ""
+    return _redacted(error, api_key)
+
+
+def _redacted(error, api_key):
     if api_key:
         error = error.replace(api_key, "[key]")
     return " ".join(error.split())[:300]
@@ -433,47 +447,66 @@ def probe(endpoint, timeout=30):
     def result(outcome, message):
         return {"outcome": outcome, "message": message}
 
+    def failed(said, error):
+        return result("failed", said + (f": {error}" if error else "."))
+
     try:
         endpoint = check_user_endpoint(endpoint)
     except ValueError as exc:
         return result("failed", str(exc))
-    headers = {}
-    if endpoint["api_key"]:
-        headers["Authorization"] = f"Bearer {endpoint['api_key']}"
-    payload = chat_payload(
-        endpoint["model"],
-        [{"role": "user", "content": "Call confirm_connection."}],
-        [PROBE_TOOL],
-        user_key=True,
-    )
-    payload["stream"] = True
+    asked = [{"role": "user", "content": "Call confirm_connection."}]
     deadline = time.monotonic() + timeout
     try:
-        with (
-            requests.post(
-                f"{endpoint['base_url'].rstrip('/')}/chat/completions",
-                headers=headers,
-                json=payload,
-                stream=True,
-                timeout=timeout,
-                # A redirect would take the key past the base_url check.
-                allow_redirects=False,
-            ) as response,
-            cut_off_at(response, deadline),
-        ):
-            if response.status_code >= 300:
-                error = _provider_error(response, endpoint["api_key"])
-                return result(
-                    "failed",
-                    f"The provider answered with HTTP {response.status_code}"
-                    + (f": {error}" if error else "."),
+        if endpoint.get("provider") == "anthropic":
+            with anthropic_chat.client(
+                endpoint["api_key"], endpoint["base_url"], timeout=timeout
+            ) as client:
+                message = anthropic_chat.streamed(
+                    client,
+                    deadline,
+                    model=endpoint["model"],
+                    **anthropic_chat.request(asked, [PROBE_TOOL]),
                 )
-            message = streamed_message(response)
-    except requests.exceptions.Timeout:
+            message = anthropic_chat.reply(message)
+        else:
+            headers = {}
+            if endpoint["api_key"]:
+                headers["Authorization"] = f"Bearer {endpoint['api_key']}"
+            payload = chat_payload(
+                endpoint["model"], asked, [PROBE_TOOL], user_key=True
+            )
+            payload["stream"] = True
+            with (
+                requests.post(
+                    f"{endpoint['base_url'].rstrip('/')}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    stream=True,
+                    timeout=timeout,
+                    # A redirect would take the key past the base_url check.
+                    allow_redirects=False,
+                ) as response,
+                cut_off_at(response, deadline),
+            ):
+                if response.status_code >= 300:
+                    return failed(
+                        f"The provider answered with HTTP {response.status_code}",
+                        _provider_error(response, endpoint["api_key"]),
+                    )
+                message = streamed_message(response)
+    except anthropic.APIStatusError as exc:
+        error = exc.api_message if isinstance(exc.api_message, str) else ""
+        error = _redacted(error, endpoint["api_key"])
+        if exc.status_code < 300:
+            # An error event partway through a stream that opened with 200.
+            return failed("The provider reported an error partway through", error)
+        return failed(f"The provider answered with HTTP {exc.status_code}", error)
+    except (requests.exceptions.Timeout, anthropic.APITimeoutError):
         return result("failed", f"The provider did not answer within {timeout} s.")
-    except requests.exceptions.RequestException:
+    except (requests.exceptions.RequestException, anthropic.APIConnectionError):
         return result("failed", f"Could not reach {endpoint['base_url']}.")
-    except (ValueError, LookupError, TypeError, AttributeError):
+    # AssertionError is the SDK's for a reply that was no Messages API stream.
+    except (ValueError, LookupError, TypeError, AttributeError, AssertionError):
         message = {}
     if message.get("tool_calls"):
         return result("works", "The model called a tool, so the assistant can use it.")
@@ -483,9 +516,7 @@ def probe(endpoint, timeout=30):
             "The model replied but did not call the tool it was offered. The "
             "assistant answers by calling tools, so it needs a model that can.",
         )
-    return result(
-        "failed", "The reply was not a streamed chat completion; check the base URL."
-    )
+    return result("failed", "The reply was not a readable stream; check the base URL.")
 
 
 def merge_deltas(deltas):

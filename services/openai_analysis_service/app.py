@@ -20,7 +20,9 @@ from tornado.ioloop import IOLoop
 from baselayer.app.env import load_env
 from baselayer.app.models import init_db
 from baselayer.log import make_log
+from skyportal.utils.anthropic_chat import summary as claude_summary
 from skyportal.utils.embedding_store_config import summary_embeddings_enabled
+from skyportal.utils.summarize import SYSTEM_PROMPT
 
 _, cfg = load_env()
 log = make_log("openai_analysis_service")
@@ -212,24 +214,31 @@ def run_openai_summarization(data_dict):
         return rez
 
     try:
-        response = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are an authoritative expert in astronomical time-domain research.",
-                },
-                {
-                    "role": "user",
-                    "content": summary_string,
-                },
-            ],
-            model=analysis_parameters["model"],
-            temperature=analysis_parameters["temperature"],
-            max_tokens=analysis_parameters["max_tokens"],
-            top_p=analysis_parameters["top_p"],
-            frequency_penalty=analysis_parameters["frequency_penalty"],
-            presence_penalty=analysis_parameters["presence_penalty"],
-        )
+        if analysis_parameters.get("provider") == "anthropic":
+            # Sampling and max_tokens settings do not apply to Claude.
+            openai_summary = claude_summary(
+                analysis_parameters["openai_api_key"],
+                analysis_parameters.get("base_url"),
+                analysis_parameters["model"],
+                SYSTEM_PROMPT,
+                summary_string,
+                # The OpenAI client's default.
+                timeout=600,
+            )
+        else:
+            response = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": summary_string},
+                ],
+                model=analysis_parameters["model"],
+                temperature=analysis_parameters["temperature"],
+                max_tokens=analysis_parameters["max_tokens"],
+                top_p=analysis_parameters["top_p"],
+                frequency_penalty=analysis_parameters["frequency_penalty"],
+                presence_penalty=analysis_parameters["presence_penalty"],
+            )
+            openai_summary = response.choices[0].message.content
     except Exception as e:
         log(f"OpenAI summarization failed {e}")
         rez.update(
@@ -239,8 +248,6 @@ def run_openai_summarization(data_dict):
             }
         )
         return rez
-
-    openai_summary = response.choices[0].message.content
 
     # remove dislaimers & newlines
     openai_summary = openai_summary.replace("Based on the given information, it", "It")
@@ -260,10 +267,11 @@ def run_openai_summarization(data_dict):
     if EMBED_SUMMARIES:
         # Only OpenAI itself, configured without a key of its own, is reached
         # with the key this run was given, which may be the requesting user's.
-        # A user's key saved for another base_url belongs to that provider.
+        # A user's key saved for another provider or base_url belongs to it.
         run_key = analysis_parameters["openai_api_key"]
-        other_provider = run_key != openai_api_key and bool(
-            analysis_parameters.get("base_url")
+        provider = analysis_parameters.get("provider", "openai_compatible")
+        other_provider = provider != "openai_compatible" or (
+            run_key != openai_api_key and bool(analysis_parameters.get("base_url"))
         )
         embedding_key = summarize_embedding_api_key
         if (
