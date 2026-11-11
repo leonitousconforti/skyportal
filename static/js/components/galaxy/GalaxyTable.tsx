@@ -34,6 +34,31 @@ const GalaxyTableToolbar = ({
   </DataGridToolbar>
 );
 
+// Filter-form params, all sent on submit so cleared fields replace old values
+const FILTER_KEYS = [
+  "galaxyName",
+  "ra",
+  "dec",
+  "radius",
+  "minRedshift",
+  "maxRedshift",
+  "minDistance",
+  "maxDistance",
+  "localizationDateobs",
+  "localizationName",
+];
+
+// Columns the galaxy API can sort by
+const SERVER_SORT_FIELDS = [
+  "name",
+  "distmpc",
+  "redshift",
+  "mstar",
+  "sfr_fuv",
+  "magb",
+  "magk",
+];
+
 interface GalaxyTableProps {
   galaxies?: any[] | null;
   totalMatches?: number;
@@ -61,26 +86,15 @@ const GalaxyTable = ({
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortModel, setSortModel] = useState<any[]>([]);
   const [rowsPerPage, setRowsPerPage] = useState(numPerPage);
+  const [quickSearch, setQuickSearch] = useState<string>();
 
   const handleFilterSubmit = async (formData: any) => {
-    if (
-      formData?.position &&
-      !formData?.position?.ra &&
-      !formData?.position?.dec &&
-      !formData?.position?.radius
-    ) {
-      delete formData.position;
-    }
-
-    const data = filterOutEmptyValues(formData) as any;
-    if ("position" in data) {
-      data.ra = data.position.ra;
-      data.dec = data.position.dec;
-      data.radius = data.position.radius;
-      delete data.position;
-    }
-
-    onFilterSubmit?.(data);
+    const values = filterOutEmptyValues({ ...formData, ...formData?.position });
+    onFilterSubmit?.({
+      ...Object.fromEntries(FILTER_KEYS.map((key) => [key, values[key]])),
+      // An empty name field keeps the toolbar search applied
+      galaxyName: values["galaxyName"] ?? quickSearch,
+    });
     setFilterFormSubmitted(true);
   };
 
@@ -105,6 +119,12 @@ const GalaxyTable = ({
 
   const handleSortModelChange = (model: any) => {
     setSortModel(model);
+    if (serverSide) {
+      onFilterSubmit?.({
+        sortBy: model[0]?.field,
+        sortOrder: model[0]?.sort,
+      });
+    }
   };
 
   const renderRA = (params: any) => params.row.ra.toFixed(6);
@@ -256,7 +276,10 @@ const GalaxyTable = ({
       <StyledDataGrid
         height={fixedHeader ? FULL_PAGE_HEIGHT : "auto"}
         rows={galaxies}
-        columns={columns}
+        columns={columns.map((column) => ({
+          ...column,
+          sortable: !serverSide || SERVER_SORT_FIELDS.includes(column.field),
+        }))}
         getRowId={(row: any) => row.id ?? `${row.name}_${row.ra}_${row.dec}`}
         paginationMode={serverSide ? "server" : "client"}
         sortingMode={serverSide ? "server" : "client"}
@@ -269,13 +292,12 @@ const GalaxyTable = ({
         sortModel={sortModel}
         onSortModelChange={handleSortModelChange}
         filterMode={serverSide ? "server" : "client"}
-        onFilterModelChange={(model: any) =>
-          serverSide &&
-          onFilterSubmit?.({
-            galaxyName: model.quickFilterValues?.join(" ") || undefined,
-            pageNumber: 1,
-          })
-        }
+        disableColumnFilter={serverSide}
+        onFilterModelChange={(model: any) => {
+          const galaxyName = model.quickFilterValues?.join(" ") || undefined;
+          setQuickSearch(galaxyName);
+          if (serverSide) onFilterSubmit?.({ galaxyName, pageNumber: 1 });
+        }}
         slots={{ toolbar: GalaxyTableToolbar }}
         slotProps={{
           toolbar: { title, onFilterClick: () => setFilterOpen(true) },
