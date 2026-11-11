@@ -1,5 +1,6 @@
 import os
 import uuid
+from datetime import datetime, timedelta
 
 import numpy as np
 
@@ -56,12 +57,27 @@ def test_earthquake_predictions_and_measurements(super_admin_token, view_only_to
     assert status == 200
     assert data["status"] == "success"
 
+    status, data = api(
+        "POST",
+        f"earthquake/{event_id}/mmadetector/{detector_id}/measurements",
+        token=super_admin_token,
+        data=measurement_data,
+    )
+    assert status == 400
+    assert "already exists" in data["message"]
+
     status, data = api("GET", f"earthquake/{event_id}", token=super_admin_token)
     assert status == 200
     data = data["data"]
     predictions = data["predictions"]
-    assert predictions[0]["p"] == "2020-08-19T03:47:22.163374"
     assert predictions[0]["r2p0"] == "2020-08-19T03:47:22.163374"
+    # body waves arrive long before the 2 km/s surface wave
+    assert predictions[0]["p"] < predictions[0]["r2p0"]
+    assert predictions[0]["s"] < predictions[0]["r2p0"]
+    # S (here SKS) trails P by 10.6 min, vs 7.4 min for PKIKS and 3 s for sPdiff
+    p = datetime.fromisoformat(predictions[0]["p"])
+    s = datetime.fromisoformat(predictions[0]["s"])
+    assert s - p > timedelta(minutes=9)
     measurements = data["measurements"]
     assert np.isclose(measurements[0]["rfamp"], 1e-5)
     assert measurements[0]["lockloss"] == 1
@@ -96,6 +112,17 @@ def test_earthquake_predictions_and_measurements(super_admin_token, view_only_to
     data = data["data"]
     measurements = data["measurements"]
     assert len(measurements) == 0
+
+    # repeat on a new row, so the 400s cannot both rely on a measurement id
+    # that happens to equal the event id
+    for expected_status in (200, 400):
+        status, data = api(
+            "POST",
+            f"earthquake/{event_id}/mmadetector/{detector_id}/measurements",
+            token=super_admin_token,
+            data=measurement_data,
+        )
+        assert status == expected_status
 
 
 def test_earthquake_quakeml(super_admin_token, view_only_token):
@@ -180,6 +207,36 @@ def test_earthquake_dictionary(super_admin_token, view_only_token):
     assert data["status"] == "success"
 
     status, data = api("GET", f"earthquake/{event_id}", token=super_admin_token)
+
+
+def test_earthquake_list_newest_first(super_admin_token):
+    event_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    # two notices for the first event, then one for the second
+    for event_id, magnitude in [
+        (event_ids[0], 2.5),
+        (event_ids[0], 3.5),
+        (event_ids[1], 4.5),
+    ]:
+        data = {
+            "event_id": event_id,
+            "latitude": 39.3648333,
+            "longitude": -123.2506667,
+            "depth": 7380.0,
+            "magnitude": magnitude,
+            "date": "2011-03-11 05:46:24",
+        }
+        status, data = api("POST", "earthquake", data=data, token=super_admin_token)
+        assert status == 200, data
+
+    params = {"startDate": "2011-03-11T05:46:00", "endDate": "2011-03-11T05:47:00"}
+    status, data = api("GET", "earthquake", token=super_admin_token, params=params)
+    assert status == 200, data
+    data = data["data"]
+    # the date filters join each event to every matching notice
+    assert data["totalMatches"] == len(data["events"])
+    events = [event for event in data["events"] if event["event_id"] in event_ids]
+    assert [event["event_id"] for event in events] == event_ids[::-1]
+    assert [notice["magnitude"] for notice in events[1]["notices"]] == [3.5, 2.5]
 
 
 def test_earthquake_comments_respect_comment_groups(

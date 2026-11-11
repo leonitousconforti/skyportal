@@ -393,12 +393,14 @@ class EarthquakeHandler(BaseHandler):
             if query.statusRemove:
                 stmt = stmt.where(~EarthquakeEvent.status.contains(query.statusRemove))
 
+            # distinct, since the date joins repeat an event once per notice
+            stmt = stmt.distinct()
             total_matches = await session.scalar(
                 sa.select(sa.func.count()).select_from(stmt.subquery())
             )
 
             stmt = (
-                stmt.distinct()
+                stmt.order_by(EarthquakeEvent.created_at.desc())
                 .limit(query.numPerPage)
                 .offset((query.pageNumber - 1) * query.numPerPage)
             )
@@ -406,7 +408,16 @@ class EarthquakeHandler(BaseHandler):
             result = await session.scalars(stmt)
             events = []
             for event in result.unique().all():
-                events.append({**event.to_dict(), "notices": list(set(event.notices))})
+                events.append(
+                    {
+                        **event.to_dict(),
+                        "notices": sorted(
+                            event.notices,
+                            key=lambda notice: notice.created_at,
+                            reverse=True,
+                        ),
+                    }
+                )
 
             query_results = {"events": events, "totalMatches": int(total_matches)}
 
@@ -549,7 +560,7 @@ def compute_traveltimes(earthquake, detector):
         MMA Detector to compute parameters for
     """
 
-    depth = earthquake.depth
+    depth = earthquake.depth / 1000  # stored in m, TauP takes km
     eqtime = Time(earthquake.date, format="datetime")
     eqlat = earthquake.lat
     eqlon = earthquake.lon
@@ -574,9 +585,13 @@ def compute_traveltimes(earthquake, detector):
         Ptime = -1
         Stime = -1
         for phase in arrivals:
-            if Ptime == -1 and phase.name.lower()[0] == "p":
+            # skip phases that convert between P and S on the way, like sP or PcS
+            leg = phase.name.removesuffix("diff")[-1].lower()
+            if phase.name[0].lower() != leg:
+                continue
+            if Ptime == -1 and leg == "p":
                 Ptime = eqtime + TimeDelta(phase.time * u.s)
-            if Stime == -1 and phase.name.lower()[0] == "s":
+            if Stime == -1 and leg == "s":
                 Stime = eqtime + TimeDelta(phase.time * u.s)
     except TauModelError:
         Ptime, Stime = Rtwotime, Rtwotime
@@ -639,7 +654,7 @@ class EarthquakeMeasurementHandler(BaseHandler):
 
             measurement = await session.scalar(
                 EarthquakeMeasured.select(session.user_or_token).where(
-                    EarthquakeMeasured.id == event.id,
+                    EarthquakeMeasured.event_id == event.id,
                     EarthquakeMeasured.detector_id == detector.id,
                 )
             )
