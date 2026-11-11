@@ -1,4 +1,4 @@
-import { useGetProfileQuery } from "../ducks/profile";
+import { useGetAIConnectionQuery } from "../ducks/aiConnection";
 import { useGetGroupsQuery } from "../ducks/groups";
 import { useEffect, useMemo, useState } from "react";
 
@@ -51,7 +51,7 @@ const StartBotSummary = ({ obj_id }: StartBotSummaryProps) => {
   // Groups the user can access (all groups for sysadmins, member groups
   // otherwise) so users can't share a summary with a group they're not in.
   const allGroups = useGetGroupsQuery().data?.userAccessible ?? null;
-  const prefs: any = useGetProfileQuery().data?.preferences;
+  const { data: aiConnection } = useGetAIConnectionQuery();
   const { data: config } = useGetConfigQuery() as { data: any };
 
   const [selectedAnalysisServiceId, setSelectedAnalysisServiceId] =
@@ -124,7 +124,7 @@ const StartBotSummary = ({ obj_id }: StartBotSummaryProps) => {
 
   if (
     !analysisServiceList?.some((service: any) => service.is_summary) ||
-    (!prefs?.summary?.OpenAI?.active && !config?.summary_apikey_set)
+    (!aiConnection && !config?.summary_apikey_set)
   ) {
     return null;
   }

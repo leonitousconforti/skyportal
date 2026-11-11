@@ -1,6 +1,7 @@
 import copy
 import os
 
+import sqlalchemy as sa
 import yaml
 from openai import OpenAI
 from skyportal_py_models.summary_query import (
@@ -12,12 +13,22 @@ from tornado.ioloop import IOLoop
 from baselayer.app.access import auth_or_token
 from baselayer.app.env import load_env
 
-from ...models import Classification, Source, User
+from ...models import AIConnection, Classification, Source
 from ...utils.embedding_store import search_embeddings, search_embeddings_by_obj
 from ...utils.embedding_store_config import summary_embeddings_enabled
 from ..base import BaseHandler
 
 _, cfg = load_env()
+
+
+def requester_embedding_key(connection):
+    """The requester's own key for OpenAI's embeddings, or None: a key saved for
+    another base URL belongs to another provider and is never sent to OpenAI."""
+    if connection is None or connection.provider != "openai_compatible":
+        return None
+    if connection.base_url:
+        return None
+    return connection.api_key or None
 
 
 def embed_query_text(query: str, openai_api_key: str) -> list[float]:
@@ -97,25 +108,13 @@ class SummaryQueryHandler(BaseHandler):
         if query and not embedding_key and not summarize_embedding_base_url:
             embedding_key = openai_api_key
             if not embedding_key:
-                user_id = self.associated_user_object.id
                 async with self.AsyncSession() as session:
-                    user = await session.scalar(
-                        User.select(session.user_or_token, mode="read").where(
-                            User.id == user_id
+                    connection = await session.scalar(
+                        sa.select(AIConnection).where(
+                            AIConnection.user_id == self.associated_user_object.id
                         )
                     )
-                    if user is None:
-                        return self.error(
-                            "No global OpenAI key found and cannot find user.",
-                            status=400,
-                        )
-
-                    if user.preferences is not None and user.preferences.get(
-                        "summary", {}
-                    ).get("OpenAI", {}).get("active", False):
-                        embedding_key = user.preferences["summary"]["OpenAI"].get(
-                            "apikey"
-                        )
+                embedding_key = requester_embedding_key(connection)
             if not embedding_key:
                 return self.error("No OpenAI API key found.", status=400)
 

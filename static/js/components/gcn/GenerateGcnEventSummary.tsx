@@ -7,7 +7,7 @@ import Tooltip from "@mui/material/Tooltip";
 import { showNotification } from "baselayer/components/Notifications";
 import { useAppDispatch } from "../../types/hooks";
 import { useGetConfigQuery } from "../../ducks/config";
-import { useGetProfileQuery } from "../../ducks/profile";
+import { useGetAIConnectionQuery } from "../../ducks/aiConnection";
 import { useSummarizeGcnEventMutation } from "../../ducks/gcnEvent";
 
 interface GenerateGcnEventSummaryProps {
@@ -19,10 +19,10 @@ const GenerateGcnEventSummary = ({ dateobs }: GenerateGcnEventSummaryProps) => {
   const [summarizeGcnEvent] = useSummarizeGcnEventMutation();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { data: config } = useGetConfigQuery() as { data: any };
-  const prefs: any = useGetProfileQuery().data?.preferences;
+  const { data: aiConnection } = useGetAIConnectionQuery();
 
   // Nothing to click unless a model is reachable.
-  if (!config?.summary_apikey_set && !prefs?.summary?.OpenAI?.active) {
+  if (!config?.summary_apikey_set && !aiConnection) {
     return null;
   }
 

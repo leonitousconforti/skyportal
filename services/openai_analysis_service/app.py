@@ -260,9 +260,18 @@ def run_openai_summarization(data_dict):
     if EMBED_SUMMARIES:
         # Only OpenAI itself, configured without a key of its own, is reached
         # with the key this run was given, which may be the requesting user's.
+        # A user's key saved for another base_url belongs to that provider.
+        run_key = analysis_parameters["openai_api_key"]
+        other_provider = run_key != openai_api_key and bool(
+            analysis_parameters.get("base_url")
+        )
         embedding_key = summarize_embedding_api_key
-        if not embedding_key and not summarize_embedding_base_url:
-            embedding_key = analysis_parameters["openai_api_key"]
+        if (
+            not embedding_key
+            and not summarize_embedding_base_url
+            and not other_provider
+        ):
+            embedding_key = run_key
         embedding_client = OpenAI(
             api_key=embedding_key or "none",
             base_url=summarize_embedding_base_url,
