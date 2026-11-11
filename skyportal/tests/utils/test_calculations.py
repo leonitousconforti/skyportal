@@ -54,6 +54,7 @@ def test_hms_to_deg():
 
 def test_dms_to_deg():
     assert np.isclose(dms_to_deg("+17 40 50.390"), 17.680664)
+    assert np.isclose(dms_to_deg("-00 12 34.5"), -0.209583)
 
 
 def test_radec_to_healpix():
