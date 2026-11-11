@@ -672,7 +672,8 @@ def validate_submission_requests():
                     submission_request = session.scalar(
                         sa.select(SharingServiceSubmission)
                         .where(
-                            SharingServiceSubmission.tns_status.like("submitted"),
+                            # also matches "submitted" followed by a warning
+                            SharingServiceSubmission.tns_status.like("submitted%"),
                             SharingServiceSubmission.tns_submission_id.isnot(None),
                             SharingServiceSubmission.sharing_service_id.notin_(
                                 sa.select(SharingService.id).where(
@@ -739,18 +740,10 @@ def validate_submission_requests():
                         )
                     elif not err and tns_source and serialized_response:
                         # we may have warnings after the "submitted" status, so we keep them in the "complete" status
-                        existing_tns_status = (
-                            str(submission_request.tns_status).strip().split(" ")
+                        submission_request.tns_status = (
+                            "complete"
+                            + submission_request.tns_status.removeprefix("submitted")
                         )
-                        if (
-                            existing_tns_status
-                            and existing_tns_status[0] == "submitted"
-                        ):
-                            submission_request.tns_status = (
-                                f"complete {' '.join(existing_tns_status[1:])}"
-                            )
-                        else:
-                            submission_request.tns_status = "complete"
                         submission_request.tns_response = serialized_response
                         session.merge(submission_request)
                         session.commit()

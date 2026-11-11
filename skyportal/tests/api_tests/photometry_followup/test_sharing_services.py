@@ -1025,3 +1025,56 @@ def test_tns_retry_does_not_republish_to_hermes(
     tns_status, saved_hermes_status, _ = get_submission(submission_id)
     assert tns_status == "Error: TNS is down"
     assert saved_hermes_status == hermes_status
+
+
+@pytest.mark.parametrize("warning", ["(warning: x)", " (warning: x)"])
+def test_tns_validator_completes_reports_with_a_warning(
+    warning, live_sharing_service, public_source, user, monkeypatch
+):
+    queue = import_sharing_service_queue()
+    submission_id = add_submission(
+        live_sharing_service,
+        public_source.id,
+        user.id,
+        datetime(2000, 1, 1),
+        publish_to_tns=True,
+        tns_status=f"submitted{warning}",
+        tns_submission_id=1,
+    )
+    reply = {"status_code": 200}
+    monkeypatch.setattr(
+        queue, "check_at_report", lambda *args: ("2026abc", reply, None)
+    )
+    # the completion path pushes to Flow once it has saved the status
+    monkeypatch.setattr(queue, "Flow", stop)
+    monkeypatch.setattr(queue, "time", fake_time(1))
+    run_until_stopped(queue.validate_submission_requests)
+
+    tns_status, _, tns_response = get_submission(submission_id)
+    assert tns_status == f"complete{warning}"
+    assert tns_response == reply
+
+
+def test_tns_validator_retries_a_lost_report_with_a_warning(
+    live_sharing_service, public_source, user, monkeypatch
+):
+    queue = import_sharing_service_queue()
+    submission_id = add_submission(
+        live_sharing_service,
+        public_source.id,
+        user.id,
+        datetime(2000, 1, 1),
+        publish_to_tns=True,
+        tns_status="submitted(warning: x)",
+        tns_submission_id=1,
+    )
+    reply = {"status_code": 404}
+    monkeypatch.setattr(
+        queue, "check_at_report", lambda *args: (None, reply, "report not found")
+    )
+    # stops at the next pass, after the report is queued again
+    monkeypatch.setattr(queue, "time", fake_time(1))
+    run_until_stopped(queue.validate_submission_requests)
+
+    tns_status, _, _ = get_submission(submission_id)
+    assert tns_status == "pending"
