@@ -404,6 +404,11 @@ const NOTIFICATIONS: {
           field="reminder_on_shift"
           title="On shifts"
         />
+        <PreferenceOption
+          type="reminders"
+          field="reminder_on_earthquake"
+          title="On earthquakes"
+        />
       </PreferenceOptions>
     ),
   },
