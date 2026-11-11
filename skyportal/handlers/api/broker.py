@@ -61,6 +61,8 @@ _, cfg = load_env()
 log = make_log("api/broker")
 
 MAX_FILTER_ACTIVATIONS = 100
+# Only BOOM reads radius_units; the other providers take the radius in arcsec
+RADIUS_TO_ARCSEC = {"deg": 3600, "arcmin": 60}
 
 AlertId = Annotated[
     str,
@@ -523,6 +525,9 @@ class BrokerAlertsHandler(BaseHandler):
         """
         query = self.parse_query(BrokerAlertsGetQuery)
         params: dict[str, Any] = query.model_dump(exclude_none=True)
+        units = params.pop("radius_units", None)
+        if "radius" in params:
+            params["radius"] *= RADIUS_TO_ARCSEC.get(units, 1)
 
         with self.Session() as session:
             broker = _get_broker(self, session, broker_id)
@@ -727,9 +732,8 @@ class BrokerConeSearchHandler(BaseHandler):
                     broker,
                     query.ra,
                     query.dec,
-                    query.radius,
+                    query.radius * RADIUS_TO_ARCSEC.get(query.radius_units, 1),
                     session,
-                    radius_units=query.radius_units,
                     **own_upstream_token(
                         session, broker, self.associated_user_object.id
                     ),
