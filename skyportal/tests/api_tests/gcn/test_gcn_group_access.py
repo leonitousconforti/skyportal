@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 
+from skyportal.models import DBSession
 from skyportal.tests import api
 from skyportal.utils.naive_datetime import utcnow_naive
 
@@ -275,3 +276,74 @@ def test_gcn_event_comments_respect_comment_groups(
     status, data = api("GET", f"gcn_event/{dateobs}", token=view_only_token)
     assert status == 200, data
     assert text not in [c["text"] for c in data["data"]["comments"]]
+
+
+def test_gcn_event_comments_and_summaries_shared_with_two_groups_listed_once(
+    super_admin_token, public_group, public_group2, comment_token_two_groups
+):
+    # the reader is in both of the event's and the comment's groups
+    group_ids = [public_group.id, public_group2.id]
+    dateobs, _, _ = _post_cone_event(super_admin_token, group_ids=group_ids)
+
+    status, data = api("GET", f"gcn_event/{dateobs}", token=comment_token_two_groups)
+    assert status == 200, data
+    gcnevent_id = data["data"]["id"]
+
+    text = str(uuid.uuid4())
+    status, data = api(
+        "POST",
+        f"gcn_event/{gcnevent_id}/comments",
+        data={"text": text, "group_ids": group_ids},
+        token=comment_token_two_groups,
+    )
+    assert status == 200, data
+
+    title = str(uuid.uuid4())
+    status, data = api(
+        "POST",
+        f"gcn_event/{dateobs}/summary",
+        data={
+            "title": title,
+            "groupId": public_group.id,
+            "startDate": dateobs,
+            "endDate": dateobs,
+            "noText": True,
+        },
+        token=super_admin_token,
+    )
+    assert status == 200, data
+
+    status, data = api("GET", f"gcn_event/{dateobs}", token=comment_token_two_groups)
+    assert status == 200, data
+    assert [c["text"] for c in data["data"]["comments"]] == [text]
+    assert [s["title"] for s in data["data"]["summaries"]] == [title]
+
+
+def test_plan_request_total_matches_counts_each_request_once(
+    public_event_observation_plan_statistics, public_group2, view_only_token_two_groups
+):
+    plan = public_event_observation_plan_statistics.observation_plan
+    request = plan.observation_plan_request
+    # the reader is in several of the event's groups
+    request.gcnevent.groups.append(public_group2)
+    DBSession.commit()
+
+    status, data = api(
+        "GET",
+        f"allocation/observation_plans/{request.allocation_id}",
+        params={"numPerPage": 10},
+        token=view_only_token_two_groups,
+    )
+    assert status == 200, data
+    assert [r["id"] for r in data["data"]["observation_plan_requests"]] == [request.id]
+    assert data["data"]["totalMatches"] == 1
+
+    status, data = api(
+        "GET",
+        "observation_plan",
+        params={"dateobs": request.gcnevent.dateobs.isoformat(), "numPerPage": 10},
+        token=view_only_token_two_groups,
+    )
+    assert status == 200, data
+    assert [r["id"] for r in data["data"]["requests"]] == [request.id]
+    assert data["data"]["totalMatches"] == 1

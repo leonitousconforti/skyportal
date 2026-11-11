@@ -2532,22 +2532,30 @@ class GcnEventHandler(BaseHandler):
                     return self.error("GCN event not found", status=404)
 
                 comments = (
-                    await session.scalars(
-                        CommentOnGCN.select(session.user_or_token)
-                        .options(selectinload(CommentOnGCN.author))
-                        .where(CommentOnGCN.gcn_id == event.id)
-                    )
-                ).all()
-                summaries = (
-                    await session.scalars(
-                        GcnSummary.select(session.user_or_token)
-                        .options(
-                            selectinload(GcnSummary.sent_by),
-                            selectinload(GcnSummary.group),
+                    (
+                        await session.scalars(
+                            CommentOnGCN.select(session.user_or_token)
+                            .options(selectinload(CommentOnGCN.author))
+                            .where(CommentOnGCN.gcn_id == event.id)
                         )
-                        .where(GcnSummary.dateobs == event.dateobs)
                     )
-                ).all()
+                    .unique()
+                    .all()
+                )
+                summaries = (
+                    (
+                        await session.scalars(
+                            GcnSummary.select(session.user_or_token)
+                            .options(
+                                selectinload(GcnSummary.sent_by),
+                                selectinload(GcnSummary.group),
+                            )
+                            .where(GcnSummary.dateobs == event.dateobs)
+                        )
+                    )
+                    .unique()
+                    .all()
+                )
 
                 # .to_dict() fetches the deferred properties, so we build the dict
                 # manually to avoid fetching the content if no_notice_content is True

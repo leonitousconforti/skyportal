@@ -161,7 +161,8 @@ def create_photometry_annotations_query(
         session.user_or_token,
         columns=[
             AnnotationOnPhotometry.obj_id.label("obj_id"),
-            func.count(AnnotationOnPhotometry.obj_id).label("count"),
+            # the read policy repeats an annotation per shared group
+            func.count(sa.distinct(AnnotationOnPhotometry.id)).label("count"),
         ],
     ).group_by(AnnotationOnPhotometry.obj_id)
     if photometry_annotations_filter_origin is not None:
