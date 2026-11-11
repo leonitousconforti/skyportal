@@ -23,7 +23,7 @@ import {
   useCommentPanel,
   useCommentTarget,
 } from "../../contexts/CommentPanelContext";
-import { useGetConfigQuery } from "../../ducks/config";
+import { useAssistantAvailable } from "../../ducks/assistant";
 import { useGetGroupQuery } from "../../ducks/group";
 import { useGetFilterQuery } from "../../ducks/filter";
 import { useGetStreamQuery } from "../../ducks/stream";
@@ -36,7 +36,7 @@ import {
 
 const AssistantHint = () => {
   const { setSpace, setOpen } = useCommentPanel();
-  if (useGetConfigQuery().data?.["assistantEnabled"] !== true) return null;
+  if (!useAssistantAvailable()) return null;
 
   return (
     <Alert

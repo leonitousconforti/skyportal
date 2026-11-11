@@ -20,6 +20,12 @@ export interface AIConnectionPut {
   api_key: string | null;
 }
 
+/** What a test of the saved connection found. */
+export interface AIConnectionTest {
+  outcome: "works" | "no_tool_calls" | "failed";
+  message: string;
+}
+
 export const aiConnectionApi = skyportalApi.injectEndpoints({
   endpoints: (build) => ({
     getAIConnection: build.query<AIConnection | null, void>({
@@ -38,6 +44,9 @@ export const aiConnectionApi = skyportalApi.injectEndpoints({
       query: () => ({ url: "api/internal/ai_connection", method: "DELETE" }),
       invalidatesTags: ["AIConnection"],
     }),
+    testAIConnection: build.mutation<AIConnectionTest, void>({
+      query: () => ({ url: "api/internal/ai_connection/test", method: "POST" }),
+    }),
   }),
 });
 
@@ -45,4 +54,5 @@ export const {
   useGetAIConnectionQuery,
   useUpdateAIConnectionMutation,
   useDeleteAIConnectionMutation,
+  useTestAIConnectionMutation,
 } = aiConnectionApi;

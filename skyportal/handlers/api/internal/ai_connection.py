@@ -1,13 +1,23 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import sqlalchemy as sa
 from skyportal_py_models.ai_connection import AIConnectionPutBody, AIConnectionResponse
 from tornado.ioloop import IOLoop
 
 from baselayer.app.access import auth_or_token
+from baselayer.app.env import load_env
 
 from ....models import AIConnection
 from ....models.ai_connection import PROVIDERS
+from ....utils.assistant import probe, user_endpoint, user_keys_allowed
 from ....utils.user_url import check_user_base_url
 from ...base import BaseHandler
+
+_, cfg = load_env()
+
+# A test waits on a server the user picked, so it gets threads of its own.
+_test_executor = ThreadPoolExecutor(max_workers=4)
+_testing_user_ids = set()
 
 
 class AIConnectionHandler(BaseHandler):
@@ -122,3 +132,47 @@ class AIConnectionHandler(BaseHandler):
                 await session.delete(row)
                 await session.commit()
             return self.success()
+
+
+class AIConnectionTestHandler(BaseHandler):
+    @auth_or_token
+    async def post(self):
+        """
+        ---
+        summary: Test your AI connection
+        description: Sends one small chat request offering a tool, and reports
+          whether the model called it, which the assistant needs, or why the
+          provider refused. Only when the assistant may use your connection.
+        responses:
+          200:
+            content:
+              application/json:
+                schema: Success
+          400:
+            content:
+              application/json:
+                schema: Error
+        """
+        if not user_keys_allowed(cfg):
+            return self.error(
+                "The assistant on this instance does not use your AI connection"
+            )
+        user_id = self.associated_user_object.id
+        async with self.AsyncSession() as session:
+            endpoint = user_endpoint(
+                await session.scalar(
+                    sa.select(AIConnection).where(AIConnection.user_id == user_id)
+                )
+            )
+        if endpoint is None:
+            return self.error("Save an AI connection first")
+        if user_id in _testing_user_ids:
+            return self.error("A test of your AI connection is already running")
+        _testing_user_ids.add(user_id)
+        try:
+            result = await IOLoop.current().run_in_executor(
+                _test_executor, probe, endpoint
+            )
+        finally:
+            _testing_user_ids.discard(user_id)
+        return self.success(data=result)

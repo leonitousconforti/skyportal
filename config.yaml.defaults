@@ -746,6 +746,9 @@ app:
       model: ""
       api_key: ""
     fallback_period: 300
+    # Let users who saved their own AI connection chat on it, base_url set or
+    # not. Their questions, and what the tools read for them, go to their provider.
+    allow_user_keys: false
     # Master switch for autonomous triage: on completion
     analysis_triage:
       enabled: false
