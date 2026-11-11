@@ -778,7 +778,7 @@ class PhotometricSeries(conesearch_alchemy.Point, Base):
             if "e_magtot" not in df:
                 df["e_magtot"] = self.e_magtot
             if "tot_flux" not in df:
-                df["tot_flux"] = self.tot_flux
+                df["tot_flux"] = self.tot_fluxes
             if "tot_fluxerr" not in df:
                 df["tot_fluxerr"] = self.tot_fluxerr
 
@@ -1434,7 +1434,14 @@ class PhotometricSeries(conesearch_alchemy.Point, Base):
     @property
     def e_magtot(self):
         """The error on the total magnitude."""
-        if self.ref_flux is not None and self.ref_flux > 0 and self.ref_fluxerr > 0:
+        # series uploaded without fluxerr or magerr have an empty fluxerr
+        if (
+            self.ref_flux is not None
+            and self.ref_flux > 0
+            and self.ref_fluxerr is not None
+            and self.ref_fluxerr > 0
+            and self.fluxerr.shape == self.fluxes.shape
+        ):
             flux = self.fluxes
             err = self.fluxerr
             bad_idx = np.isnan(flux) | np.isnan(err) | (flux <= 0) | (err <= 0)
@@ -1458,7 +1465,12 @@ class PhotometricSeries(conesearch_alchemy.Point, Base):
     @property
     def tot_fluxerr(self):
         """The errors on the total fluxes."""
-        if self.ref_fluxerr is not None and self.ref_fluxerr > 0:
+        # series uploaded without fluxerr or magerr have an empty fluxerr
+        if (
+            self.ref_fluxerr is not None
+            and self.ref_fluxerr > 0
+            and self.fluxerr.shape == self.fluxes.shape
+        ):
             err = self.fluxerr
             bad_idx = np.isnan(err) | (err <= 0)
             tot_err = np.sqrt(self.ref_fluxerr**2 + err**2)

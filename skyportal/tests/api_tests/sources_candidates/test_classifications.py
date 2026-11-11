@@ -276,6 +276,66 @@ def test_update_classification_probability_records_edit(
     assert len(data["data"][0]["edits"]) == 1
 
 
+def test_update_bad_classification(
+    taxonomy_token, classification_token, public_source, public_group
+):
+    status, data = api(
+        "POST",
+        "taxonomy",
+        data={
+            "name": "test taxonomy" + str(uuid.uuid4()),
+            "hierarchy": taxonomy,
+            "group_ids": [public_group.id],
+            "provenance": f"tdtax_{__version__}",
+            "version": __version__,
+            "isLatest": True,
+        },
+        token=taxonomy_token,
+    )
+    assert status == 200
+    taxonomy_id = data["data"]["taxonomy_id"]
+
+    status, data = api(
+        "POST",
+        "classification",
+        data={
+            "obj_id": public_source.id,
+            "classification": "Algol",
+            "taxonomy_id": taxonomy_id,
+            "probability": 0.5,
+            "group_ids": [public_group.id],
+        },
+        token=classification_token,
+    )
+    assert status == 200
+    classification_id = data["data"]["classification_id"]
+
+    status, data = api(
+        "PUT",
+        f"classification/{classification_id}",
+        data={"probability": 10.0},
+        token=classification_token,
+    )
+    assert "outside the allowable range" in data["message"]
+    assert status == 400
+
+    status, data = api(
+        "PUT",
+        f"classification/{classification_id}",
+        data={"classification": "Fried Green Tomato"},
+        token=classification_token,
+    )
+    assert "is not in the allowed classes" in data["message"]
+    assert status == 400
+
+    status, data = api(
+        "GET", f"classification/{classification_id}", token=classification_token
+    )
+    assert status == 200
+    assert data["data"]["classification"] == "Algol"
+    assert data["data"]["probability"] == 0.5
+
+
 def test_delete_classification(
     taxonomy_token, classification_token, public_source, public_group
 ):

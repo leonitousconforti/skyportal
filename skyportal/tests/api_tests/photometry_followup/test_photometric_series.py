@@ -1853,6 +1853,74 @@ def test_get_series_by_magref(
     assert photometric_series_low_flux.id not in ids
 
 
+def test_source_photometry_includes_series_total_flux(
+    upload_data_token, public_source, photometric_series
+):
+    # photometric_series has a magref but no e_magref
+    status, data = api(
+        "GET",
+        f"sources/{public_source.id}/photometry",
+        params={"individualOrSeries": "series"},
+        token=upload_data_token,
+    )
+    assert_api(status, data)
+
+    points = [p for p in data["data"] if p["id"] == photometric_series.id]
+    assert len(points) == 20
+    for point in points:
+        expected = photometric_series.ref_flux + PhotometricSeries.mag2flux(
+            point["mag"]
+        )
+        assert np.isclose(point["tot_flux"], expected)
+        assert point["e_magtot"] is None
+        assert point["tot_fluxerr"] is None
+
+
+def test_source_photometry_series_ref_fluxerr_without_point_errors(
+    phot_series_maker, upload_data_token, public_source, ztf_camera
+):
+    # mag-only data has no per-point errors to combine with e_magref
+    status, data = api(
+        "POST",
+        "photometric_series",
+        data={
+            "data": phot_series_maker(number=20),
+            "obj_id": public_source.id,
+            "instrument_id": ztf_camera.id,
+            "ra": 234.22,
+            "dec": 52.31,
+            "series_name": "test_series_e_magref",
+            "series_obj_id": uuid.uuid4().hex,
+            "exp_time": 30.0,
+            "filter": "ztfg",
+            "origin": uuid.uuid4().hex,
+            "magref": 18.1,
+            "e_magref": 0.1,
+        },
+        token=upload_data_token,
+    )
+    assert_api(status, data)
+    ps_id = data["data"]["id"]
+
+    try:
+        status, data = api(
+            "GET",
+            f"sources/{public_source.id}/photometry",
+            params={"individualOrSeries": "series"},
+            token=upload_data_token,
+        )
+        assert_api(status, data)
+
+        points = [p for p in data["data"] if p["id"] == ps_id]
+        assert len(points) == 20
+        for point in points:
+            assert point["tot_flux"] is not None
+            assert point["e_magtot"] is None
+            assert point["tot_fluxerr"] is None
+    finally:
+        api("DELETE", f"photometric_series/{ps_id}", token=upload_data_token)
+
+
 def test_by_series_by_not_detected(
     upload_data_token, photometric_series_low_flux, photometric_series_undetected
 ):

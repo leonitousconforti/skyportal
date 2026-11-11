@@ -19700,7 +19700,7 @@ export interface paths {
         put?: never;
         /**
          * Create synthetic photometry from a spectrum
-         * @description Create synthetic photometry from a spectrum
+         * @description <b>Permission(s) required:</b> <em>Upload data (or System admin)</em><br><br>Create synthetic photometry from a spectrum
          */
         post: {
             parameters: {

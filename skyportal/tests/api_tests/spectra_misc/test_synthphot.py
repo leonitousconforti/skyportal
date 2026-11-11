@@ -4,7 +4,9 @@ import uuid
 from skyportal.tests import api
 
 
-def test_synthetic_photometry(super_admin_token, public_source, public_group):
+def test_synthetic_photometry(
+    super_admin_token, view_only_token, public_source, public_group
+):
     telescope_name = str(uuid.uuid4())
     status, data = api(
         "POST",
@@ -57,6 +59,17 @@ def test_synthetic_photometry(super_admin_token, public_source, public_group):
     spectrum_id = data["data"]["id"]
 
     filters = ["ztfg", "ztfr", "ztfi"]
+    # Creating photometry requires Upload data
+    status, data = api(
+        "POST",
+        f"spectra/synthphot/{spectrum_id}",
+        data={
+            "filters": filters,
+        },
+        token=view_only_token,
+    )
+    assert status == 403
+
     status, data = api(
         "POST",
         f"spectra/synthphot/{spectrum_id}",

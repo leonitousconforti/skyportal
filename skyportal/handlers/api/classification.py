@@ -41,6 +41,36 @@ log = make_log("api/classification")
 MAX_CLASSIFICATIONS_PER_PAGE = 500
 
 
+async def validate_classification(session, classification, taxonomy_id, probability):
+    """Check the class against the taxonomy and the probability against 0-1."""
+    taxonomy = await session.scalar(
+        Taxonomy.select(session.user_or_token).where(Taxonomy.id == taxonomy_id)
+    )
+    if taxonomy is None:
+        raise ValueError(f"Cannot find a taxonomy with ID: {taxonomy_id}.")
+
+    def allowed_classes(hierarchy):
+        if "class" in hierarchy:
+            yield hierarchy["class"]
+        if "subclasses" in hierarchy:
+            for item in hierarchy.get("subclasses", []):
+                yield from allowed_classes(item)
+
+    if classification not in allowed_classes(taxonomy.hierarchy):
+        raise ValueError(
+            f"That classification ({classification}) "
+            "is not in the allowed classes for the chosen "
+            f"taxonomy (id={taxonomy_id}"
+        )
+
+    if probability is not None:
+        if probability < 0 or probability > 1:
+            raise ValueError(
+                f"That probability ({probability}) is outside "
+                "the allowable range (0-1)."
+            )
+
+
 async def post_classification(data, user_id, session):
     """Post classification to database (async).
 
@@ -84,34 +114,10 @@ async def post_classification(data, user_id, session):
             f"If provided, ml must be one of True, False, 'True', 'False', 't', 'f', 'true', 'false' (got {ml})"
         )
 
-    taxonomy_id = data["taxonomy_id"]
-    taxonomy = await session.scalar(
-        Taxonomy.select(session.user_or_token).where(Taxonomy.id == taxonomy_id)
-    )
-    if taxonomy is None:
-        raise ValueError(f"Cannot find a taxonomy with ID: {taxonomy_id}.")
-
-    def allowed_classes(hierarchy):
-        if "class" in hierarchy:
-            yield hierarchy["class"]
-        if "subclasses" in hierarchy:
-            for item in hierarchy.get("subclasses", []):
-                yield from allowed_classes(item)
-
-    if data["classification"] not in allowed_classes(taxonomy.hierarchy):
-        raise ValueError(
-            f"That classification ({data['classification']}) "
-            "is not in the allowed classes for the chosen "
-            f"taxonomy (id={taxonomy_id}"
-        )
-
     probability = data.get("probability")
-    if probability is not None:
-        if probability < 0 or probability > 1:
-            raise ValueError(
-                f"That probability ({probability}) is outside "
-                "the allowable range (0-1)."
-            )
+    await validate_classification(
+        session, data["classification"], data["taxonomy_id"], probability
+    )
 
     groups_result = await session.scalars(
         Group.select(user).where(Group.id.in_(group_ids))
@@ -398,6 +404,18 @@ class ClassificationHandler(BaseHandler):
                 return self.error(
                     f"Invalid/missing parameters: {e.normalized_messages()}"
                 )
+
+            # edits to other fields must not depend on reading the taxonomy
+            if {"classification", "taxonomy_id", "probability"} & data.keys():
+                try:
+                    await validate_classification(
+                        session,
+                        data.get("classification", c.classification),
+                        data.get("taxonomy_id", c.taxonomy_id),
+                        data.get("probability", c.probability),
+                    )
+                except ValueError as e:
+                    return self.error(str(e))
 
             old_probability = c.probability
             for k in data:
