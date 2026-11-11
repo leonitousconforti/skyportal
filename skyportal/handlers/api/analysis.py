@@ -49,6 +49,7 @@ from ...enum_types import (
     DEFAULT_ANALYSIS_SCALAR_FILTERS,
 )
 from ...models import (
+    AIConnection,
     AnalysisService,
     Annotation,
     Classification,
@@ -65,7 +66,7 @@ from ...utils.app import get_app_base_url
 from ...utils.extinction import calculate_extinction
 from ...utils.naive_datetime import utcnow_naive
 from ...utils.parse import str_to_bool
-from ...utils.user_url import check_user_base_url
+from ...utils.summarize import user_summarizer
 from ..base import BaseHandler, format_doc
 from .photometry import serialize
 
@@ -1495,30 +1496,20 @@ class AnalysisHandler(BaseHandler):
                 if user is None:
                     return self.error("Cannot find user.", status=400)
 
-                # preferences is nullable, and a user who has never saved any
-                # has None rather than an empty mapping.
-                preferences = user.preferences or {}
-                if (
-                    preferences.get("summary", {})
-                    .get("OpenAI", {})
-                    .get("active", False)
-                ):
-                    user_pref_openai = preferences["summary"]["OpenAI"].copy()
-                    analysis_parameters["openai_api_key"] = user_pref_openai["apikey"]
-                    user_pref_openai.pop("apikey", None)
-                    user_pref_openai.pop("active", None)
-                    # A personal key goes only to its owner's base_url, or OpenAI.
-                    # Checked at each use, as the host may resolve elsewhere now.
-                    base_url = user_pref_openai.get("base_url") or None
-                    if base_url:
-                        try:
-                            base_url = await IOLoop.current().run_in_executor(
-                                None, check_user_base_url, base_url
-                            )
-                        except ValueError as e:
-                            return self.error(str(e))
-                    user_pref_openai["base_url"] = base_url
-                    analysis_parameters["summary_parameters"] = user_pref_openai
+                connection = await session.scalar(
+                    sa.select(AIConnection).where(AIConnection.user_id == user_id)
+                )
+                # A personal key goes only to its owner's base_url, or OpenAI,
+                # checked at each use as the host may resolve elsewhere now.
+                try:
+                    user_settings = await IOLoop.current().run_in_executor(
+                        None, user_summarizer, connection, user.preferences
+                    )
+                except ValueError as e:
+                    return self.error(str(e))
+                if user_settings is not None:
+                    analysis_parameters["openai_api_key"] = user_settings.pop("api_key")
+                    analysis_parameters["summary_parameters"] = user_settings
                 elif openai_api_key is not None:
                     analysis_parameters["openai_api_key"] = openai_api_key
                     analysis_parameters["summary_parameters"] = summary_config

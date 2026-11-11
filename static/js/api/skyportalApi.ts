@@ -121,6 +121,7 @@ export const TAG_TYPES = [
   "Assistant",
   "Broker",
   "BrokerCredential",
+  "AIConnection",
   "DBStats",
   "DBInfo",
   "Deployments",

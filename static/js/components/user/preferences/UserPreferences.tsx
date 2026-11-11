@@ -1,6 +1,5 @@
 import { useSearchParams } from "react-router-dom";
 
-import Link from "@mui/material/Link";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 
@@ -12,7 +11,7 @@ import TokenList from "../TokenList";
 import PreferencesPanel, { PreferencesSection } from "./PreferencesPanel";
 import UIPreferences from "./UIPreferences";
 import NotificationPreferences from "./NotificationPreferences";
-import OpenAIPreferences from "./OpenAIPreferences";
+import AIConnectionPreferences from "./AIConnectionPreferences";
 import ObservabilityPreferences from "./ObservabilityPreferences";
 import FollowupRequestPreferences from "./FollowupRequestPreferences";
 import SetAutomaticallyVisiblePhotometry from "./SetAutomaticallyVisiblePhotometry";
@@ -67,20 +66,9 @@ const SETTINGS: ProfileTab[] = [
         content: <FollowupRequestPreferences />,
       },
       {
-        title: "Personal OpenAI key",
-        text: (
-          <>
-            Use your own OpenAI account for summaries.{" "}
-            <Link
-              href="https://platform.openai.com/account/api-keys"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Get a key
-            </Link>
-          </>
-        ),
-        content: <OpenAIPreferences />,
+        title: "Your AI provider",
+        text: "Use your own provider account for summaries. The key is stored encrypted and never shown again.",
+        content: <AIConnectionPreferences />,
       },
     ],
   },

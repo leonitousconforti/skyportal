@@ -28,20 +28,40 @@ def summarizer_configured():
     return bool(_config().get("api_key"))
 
 
-def user_summarizer(user):
-    """A user's own model settings: their key, sent only to their own base_url.
+# The non-secret summary settings a user keeps in preferences.summary.OpenAI.
+SUMMARY_TUNING = (
+    "model",
+    "temperature",
+    "max_tokens",
+    "top_p",
+    "frequency_penalty",
+    "presence_penalty",
+    "prompt",
+)
+
+
+def user_summarizer(connection, preferences):
+    """A user's own model settings: their AIConnection's key, sent only to its
+    base_url, with their summary tuning from `preferences`.
 
     Raises ValueError when that base_url fails `check_user_base_url`, rerun at
     each use since its host can resolve elsewhere than when it was saved.
     """
-    preferences = (getattr(user, "preferences", None) or {}).get("summary", {})
-    settings = (preferences or {}).get("OpenAI") or {}
-    if not settings.get("active") or not settings.get("apikey"):
+    if connection is None or connection.provider != "openai_compatible":
         return None
-    base_url = settings.get("base_url") or None
+    api_key = connection.api_key
+    if not api_key:
+        return None
+    tuning = ((preferences or {}).get("summary") or {}).get("OpenAI") or {}
+    settings = {k: tuning[k] for k in SUMMARY_TUNING if tuning.get(k) is not None}
+    # The connection's model is the one entered beside the provider it is for.
+    model = connection.model or settings.get("model") or _config().get("model")
+    if model:
+        settings["model"] = model
+    base_url = connection.base_url
     return {
-        **{k: v for k, v in settings.items() if k not in ("apikey", "active")},
-        "api_key": settings["apikey"],
+        **settings,
+        "api_key": api_key,
         "base_url": check_user_base_url(base_url) if base_url else None,
     }
 

@@ -145,28 +145,30 @@ def test_gcn_event_properties_reach_a_user_with_no_notifications(
     assert properties == [{"far": 1}]
 
 
-def test_a_summary_base_url_must_be_a_public_https_host(view_only_token):
-    """The server sends the user's own key to this URL."""
-
-    def save(base_url):
-        return api(
-            "PATCH",
-            "internal/profile",
-            data={"preferences": {"summary": {"OpenAI": {"base_url": base_url}}}},
-            token=view_only_token,
-        )
-
-    status, data = save("https://169.254.169.254/v1")
-    assert status == 400
-    assert "not a public address" in data["message"]
+def test_ai_key_fields_are_not_stored_in_preferences(view_only_token):
+    """A personal key, and where it is sent, live in the encrypted AI connection."""
+    status, data = api(
+        "PATCH",
+        "internal/profile",
+        data={
+            "preferences": {
+                "summary": {
+                    "OpenAI": {
+                        "apikey": "sk-test-not-stored",
+                        "base_url": "https://8.8.8.8/v1",
+                        "active": True,
+                        "temperature": 0.5,
+                    }
+                }
+            }
+        },
+        token=view_only_token,
+    )
+    assert status == 200, data
 
     status, data = api("GET", "internal/profile", token=view_only_token)
     assert status == 200
-    openai = data["data"]["preferences"].get("summary", {}).get("OpenAI", {})
-    assert openai.get("base_url") != "https://169.254.169.254/v1"
-
-    status, _ = save("https://8.8.8.8/v1")
-    assert status == 200
-    # Blank means OpenAI itself.
-    status, _ = save(None)
-    assert status == 200
+    openai = data["data"]["preferences"]["summary"]["OpenAI"]
+    assert openai["temperature"] == 0.5
+    assert not {"apikey", "base_url", "active"} & openai.keys()
+    assert "sk-test-not-stored" not in str(data)

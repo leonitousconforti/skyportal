@@ -7,22 +7,52 @@ from playwright.sync_api import expect
 from skyportal.tests import api, open_preferences_panel
 
 
+def _poll(read, done):
+    """The UI saves asynchronously, so poll the API rather than race it."""
+    value = None
+    for _ in range(20):
+        value = read()
+        if done(value):
+            break
+        time.sleep(0.5)
+    return value
+
+
+def _ai_connection(token):
+    status, data = api("GET", "internal/ai_connection", token=token)
+    assert status == 200
+    return data["data"]
+
+
+def _summary_preferences(token):
+    status, data = api("GET", "internal/profile", token=token)
+    assert status == 200
+    return data["data"]["preferences"].get("summary", {}).get("OpenAI", {})
+
+
 @pytest.mark.flaky(reruns=2)
-def test_openai_prefs(page, user, upload_data_token):
+def test_ai_connection_prefs(page, user, upload_data_token):
     page.goto(f"/become_user/{user.id}")
     page.goto("/profile")
     open_preferences_panel(page, "sources")
-    openai_toggle = page.locator('[data-testid="OpenAI_toggle"]').first
-    expect(openai_toggle).to_be_visible()
 
-    if not openai_toggle.is_checked():
-        openai_toggle.click()
+    api_key = f"sk-{uuid.uuid4()}"
+    page.locator('//input[@name="api_key"]').first.fill(api_key)
+    page.locator('[data-testid="AIConnection_save"]').first.click()
 
-    dummy_api_key = f"sk-{uuid.uuid4()}"
-    page.locator('//input[@name="openai_apikey"]').first.fill(dummy_api_key)
+    connection = _poll(
+        lambda: _ai_connection(upload_data_token), lambda c: c is not None
+    )
+    assert connection == {
+        "provider": "openai_compatible",
+        "base_url": None,
+        "model": None,
+        "api_key_set": True,
+        "api_key_last4": api_key[-4:],
+    }
 
+    # Summary tuning still lives in preferences, next to the connection.
     page.locator('[data-testid="UpdateOpenAI"]').first.click()
-
     dummy_gpt_model = f"gpt-{uuid.uuid4()}"
     # rjsf's controlled input ignores fill(); select-all + type so React's
     # onChange fires and the form state actually updates. Wait for the form to
@@ -35,37 +65,29 @@ def test_openai_prefs(page, user, upload_data_token):
     model_input.press("Delete")
     model_input.press_sequentially(dummy_gpt_model)
     expect(model_input).to_have_value(dummy_gpt_model)
-
     page.locator(
         "//form[@class='rjsf']//button[normalize-space()='Submit']"
     ).first.click()
     expect(page.locator("div.MuiDialog-container").first).to_be_hidden()
 
-    # The preference save is async (the dialog closes optimistically), so poll
-    # the profile until the model lands rather than racing the GET.
-    openai = {}
-    for _ in range(20):
-        status, data = api("GET", "internal/profile", token=upload_data_token)
-        assert status == 200
-        openai = data["data"]["preferences"].get("summary", {}).get("OpenAI", {})
-        if openai.get("model") == dummy_gpt_model:
-            break
-        time.sleep(0.5)
+    openai = _poll(
+        lambda: _summary_preferences(upload_data_token),
+        lambda prefs: prefs.get("model") == dummy_gpt_model,
+    )
     assert openai.get("model") == dummy_gpt_model
-    assert openai.get("apikey") == dummy_api_key
-    assert openai.get("active")
+    assert not {"apikey", "base_url", "active"} & openai.keys()
 
-    # uncheck the toggle
-    page.locator('[data-testid="OpenAI_toggle"]').first.click()
+    # Once saved, the key is never sent back to the page, only its last four.
+    page.reload()
+    open_preferences_panel(page, "sources")
+    key_input = page.locator('//input[@name="api_key"]').first
+    expect(key_input).to_have_attribute(
+        "placeholder", f"Saved key ending in {api_key[-4:]}"
+    )
+    expect(key_input).to_have_value("")
+    assert api_key not in page.content()
 
-    # The toggle write is async too, so poll until it deactivates rather than
-    # racing the GET against the optimistic UI update.
-    active = True
-    for _ in range(20):
-        status, data = api("GET", "internal/profile", token=upload_data_token)
-        assert status == 200
-        active = data["data"]["preferences"]["summary"]["OpenAI"]["active"]
-        if not active:
-            break
-        time.sleep(0.5)
-    assert not active
+    page.locator('[data-testid="AIConnection_remove"]').first.click()
+    connection = _poll(lambda: _ai_connection(upload_data_token), lambda c: c is None)
+    assert connection is None
+    expect(page.locator('[data-testid="UpdateOpenAI"]')).to_have_count(0)

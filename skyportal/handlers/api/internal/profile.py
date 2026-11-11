@@ -8,7 +8,6 @@ from skyportal_py_models.profile import ProfilePatchBody
 from slugify import slugify
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
-from tornado.ioloop import IOLoop
 
 from baselayer.app.access import auth_or_token
 from baselayer.app.config import recursive_update
@@ -23,15 +22,17 @@ from ....models import (
     User,
 )
 from ....utils.assistant import SERVICE_TOKEN_PREFIX
-from ....utils.user_url import check_user_base_url
 from ...base import BaseHandler
 
 
-def _summary_base_url(preferences):
-    """Where the user's own summary key is sent, or None for OpenAI."""
-    summary = (preferences or {}).get("summary")
+def _drop_ai_connection_fields(preferences):
+    """A personal AI key and where it is sent live in the encrypted AIConnection,
+    so they are never stored in preferences."""
+    summary = preferences.get("summary")
     openai = summary.get("OpenAI") if isinstance(summary, dict) else None
-    return openai.get("base_url") if isinstance(openai, dict) else None
+    if isinstance(openai, dict):
+        for key in ("apikey", "base_url", "active"):
+            openai.pop(key, None)
 
 
 class ProfileHandler(BaseHandler):
@@ -180,16 +181,6 @@ class ProfileHandler(BaseHandler):
                 schema: Error
         """
         body = self.parse_body(ProfilePatchBody)
-        # The server sends the user's key (and data) to this URL. Checked before
-        # the session, so a slow DNS lookup holds no DB connection or row lock.
-        base_url = _summary_base_url(body.preferences)
-        if base_url:
-            try:
-                await IOLoop.current().run_in_executor(
-                    None, check_user_base_url, base_url
-                )
-            except ValueError as e:
-                return self.error(str(e))
 
         async with self.AsyncSession() as session:
             user_id = (
@@ -332,6 +323,7 @@ class ProfileHandler(BaseHandler):
                     user.contact_email = None
 
             preferences = body.preferences or {}
+            _drop_ai_connection_fields(preferences)
             # Do not save blank fields (empty strings)
             for k, v in preferences.items():
                 if isinstance(v, dict):

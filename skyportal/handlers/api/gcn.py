@@ -88,6 +88,7 @@ from skyportal.models.photometry import Photometry
 
 from ...enum_types import GCN_EVENT_OBJ_STATUSES
 from ...models import (
+    AIConnection,
     Allocation,
     CatalogQuery,
     CommentOnGCN,
@@ -2296,11 +2297,16 @@ class GcnEventSummarizeHandler(BaseHandler):
         """
         if not dateobs:
             return self.error("Missing dateobs")
-        # A user's own account wins over the instance's model. Its base_url
-        # check resolves the host, so it runs off the event loop.
+        # A user's own account wins over the instance's model.
+        user = self.associated_user_object
+        async with self.AsyncSession() as session:
+            connection = await session.scalar(
+                sa.select(AIConnection).where(AIConnection.user_id == user.id)
+            )
+        # The connection's base_url check resolves the host, so it runs off the loop.
         try:
             settings = await IOLoop.current().run_in_executor(
-                None, user_summarizer, self.associated_user_object
+                None, user_summarizer, connection, user.preferences
             )
         except ValueError as e:
             return self.error(str(e))
