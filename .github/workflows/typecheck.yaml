@@ -53,3 +53,57 @@ jobs:
       # this fails when frontend code stops matching the API's types.
       - name: Type-check (tsc --noEmit)
         run: bun run typecheck
+
+  # Deliberately ungated: the client's correctness depends on projects/api-models,
+  # which the frontend/backend split does not separate out.
+  js-client:
+    name: Check the JS client
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+          package-manager-cache: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: |
+          if [ "${{ github.actor }}" = "dependabot[bot]" ]; then
+            bun install
+          else
+            bun install --frozen-lockfile
+          fi
+          # Only the models package: the generator needs pydantic, nothing else.
+          uv sync --package skyportal-py-models
+
+      # Catches a model change that was made without regenerating, which would
+      # otherwise show up as the client silently disagreeing with the server.
+      - name: Regenerate the models and check for drift
+        run: |
+          uv run --package skyportal-py-models python tools/build-js-models.py
+          git diff --exit-code projects/js-client/src/models || (
+            echo "::error::projects/js-client/src/models is out of date; run 'make js-models' and commit."
+            exit 1
+          )
+
+      - name: Type-check
+        run: node ./node_modules/typescript7/bin/tsc --noEmit -p projects/js-client/tsconfig.json
+
+      - name: Test
+        run: bun test projects/js-client
