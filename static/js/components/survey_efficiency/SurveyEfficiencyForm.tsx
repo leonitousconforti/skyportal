@@ -240,11 +240,11 @@ const SurveyEfficiencyForm = ({
 
   const validate = (formData: any, errors: any) => {
     if (
-      formData.start_date &&
-      formData.end_date &&
-      formData.start_date > formData.end_date
+      formData.startDate &&
+      formData.endDate &&
+      dayjs(formData.startDate).isAfter(formData.endDate)
     ) {
-      errors.start_date.addError("Start Date must come before End Date");
+      errors.startDate.addError("Start Date must come before End Date");
     }
 
     const maxInjections = 100000;
