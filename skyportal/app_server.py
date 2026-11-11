@@ -275,6 +275,7 @@ from skyportal.handlers.api import (
 from skyportal.handlers.api.internal import (
     AcrossInstrumentsHandler,
     AcrossJointVisibilityHandler,
+    AIConnectionHandler,
     AltdataInfoHandler,
     AnnotationsInfoHandler,
     BulkNotificationHandler,
@@ -789,6 +790,7 @@ skyportal_handlers = [
     # Internal API endpoints
     (r"/api/internal/tokens(/[0-9A-Za-z-]+)?", TokenHandler),
     (r"/api/internal/profile(/[0-9]+)?", ProfileHandler),
+    (r"/api/internal/ai_connection", AIConnectionHandler),
     (r"/api/internal/dbinfo", DBInfoHandler),
     (r"/api/internal/memory", MemoryHandler),
     (r"/api/internal/source_views(/.*)?", SourceViewsHandler),

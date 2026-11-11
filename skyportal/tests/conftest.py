@@ -16,6 +16,7 @@ import sqlalchemy as sa
 from skyportal import models
 from skyportal.model_util import create_token, delete_token
 from skyportal.models import (
+    AIConnection,
     Allocation,
     AllocationUser,
     AnalysisService,
@@ -758,6 +759,24 @@ def user_broker_credential(broker, user):
             sa.select(BrokerCredential).filter(BrokerCredential.id == credential_id)
         )
         .scalars()
+        .first()
+    )
+    if obj is not None:
+        DBSession().delete(obj)
+        DBSession().commit()
+
+
+@pytest.fixture()
+def user_ai_connection(user):
+    c = AIConnection(user_id=user.id, provider="openai_compatible")
+    c.api_key = "not-a-real-key"
+    DBSession.add(c)
+    DBSession.commit()
+    connection_id = c.id
+    yield c
+    obj = (
+        DBSession()
+        .scalars(sa.select(AIConnection).where(AIConnection.id == connection_id))
         .first()
     )
     if obj is not None:
