@@ -65,6 +65,7 @@ from ...utils.app import get_app_base_url
 from ...utils.extinction import calculate_extinction
 from ...utils.naive_datetime import utcnow_naive
 from ...utils.parse import str_to_bool
+from ...utils.user_url import check_user_base_url
 from ..base import BaseHandler, format_doc
 from .photometry import serialize
 
@@ -1507,9 +1508,16 @@ class AnalysisHandler(BaseHandler):
                     user_pref_openai.pop("apikey", None)
                     user_pref_openai.pop("active", None)
                     # A personal key goes only to its owner's base_url, or OpenAI.
-                    user_pref_openai["base_url"] = (
-                        user_pref_openai.get("base_url") or None
-                    )
+                    # Checked at each use, as the host may resolve elsewhere now.
+                    base_url = user_pref_openai.get("base_url") or None
+                    if base_url:
+                        try:
+                            base_url = await IOLoop.current().run_in_executor(
+                                None, check_user_base_url, base_url
+                            )
+                        except ValueError as e:
+                            return self.error(str(e))
+                    user_pref_openai["base_url"] = base_url
                     analysis_parameters["summary_parameters"] = user_pref_openai
                 elif openai_api_key is not None:
                     analysis_parameters["openai_api_key"] = openai_api_key

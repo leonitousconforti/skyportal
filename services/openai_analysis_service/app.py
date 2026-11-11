@@ -149,12 +149,14 @@ def run_openai_summarization(data_dict):
         )
         return rez
     try:
-        from openai import OpenAI
+        from openai import DefaultHttpxClient, OpenAI
 
-        # Unset base_url means api.openai.com.
+        # Unset base_url means api.openai.com. The base_url may be the
+        # requesting user's, checked by SkyPortal; a redirect would bypass that.
         client = OpenAI(
             api_key=analysis_parameters.get("openai_api_key"),
             base_url=analysis_parameters.get("base_url") or None,
+            http_client=DefaultHttpxClient(follow_redirects=False),
         )
 
     except Exception as e:
