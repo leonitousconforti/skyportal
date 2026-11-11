@@ -1,5 +1,7 @@
 import { skyportalApi } from "../api/skyportalApi";
 import { invalidateOnMessage } from "../api/wsInvalidation";
+import { useGetAIConnectionQuery } from "./aiConnection";
+import { useGetConfigQuery } from "./config";
 
 export interface AssistantToolCall {
   name: string;
@@ -84,3 +86,14 @@ export const {
   useRenameAssistantConversationMutation,
   useDeleteAssistantConversationMutation,
 } = assistantApi;
+
+// True when the instance has an assistant, or when the operator lets users
+// chat on their own AI connection and this user has saved one.
+export const useAssistantAvailable = (): boolean => {
+  const config = useGetConfigQuery().data;
+  const userKeys = config?.["assistantUserKeys"] === true;
+  const { data: connection } = useGetAIConnectionQuery(undefined, {
+    skip: !userKeys,
+  });
+  return config?.["assistantEnabled"] === true || (userKeys && !!connection);
+};

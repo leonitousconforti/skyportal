@@ -136,3 +136,18 @@ def test_ai_connection_key_is_encrypted_and_never_serialized(user_ai_connection)
         .scalar_one()
     )
     assert "not-a-real-key" not in stored
+
+
+def test_testing_is_refused_unless_the_assistant_uses_the_connection(
+    view_only_token,
+):
+    # test_config.yaml leaves app.assistant.allow_user_keys off, so nothing is
+    # sent; test_assistant.py covers what a provider answers.
+    status, data = put(view_only_token, model="gpt-4o-mini", api_key=KEY)
+    assert status == 200, data
+    try:
+        status, data = api("POST", "internal/ai_connection/test", token=view_only_token)
+        assert status == 400
+        assert "does not use your AI connection" in data["message"]
+    finally:
+        api("DELETE", "internal/ai_connection", token=view_only_token)

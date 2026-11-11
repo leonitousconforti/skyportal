@@ -16,6 +16,7 @@ from baselayer.app.flow import Flow
 from baselayer.app.models import ACL, init_db, session_context_id
 from baselayer.log import make_log
 from skyportal.models import (
+    AIConnection,
     AnalysisService,
     AssistantMessage,
     AssistantQuery,
@@ -34,12 +35,16 @@ from skyportal.utils.assistant import (
     SERVICE_TOKEN_PREFIX,
     build_messages,
     chat_payload,
+    check_user_endpoint,
     condense,
-    merge_deltas,
+    cut_off_at,
     offered_tools,
     proposal,
     record_call,
+    streamed_message,
     targets_page_filter,
+    user_endpoint,
+    user_keys_allowed,
 )
 from skyportal.utils.assistant_triage import (
     CROSSMATCH_RADIUS_ARCSEC,
@@ -50,6 +55,7 @@ from skyportal.utils.assistant_triage import (
     flare_result,
     triage_facts,
 )
+from skyportal.utils.user_url import check_user_base_url
 
 _, cfg = load_env()
 log = make_log("assistant")
@@ -62,6 +68,7 @@ CONFIG = cfg["app.assistant"] or {}
 BASE_URL = CONFIG.get("base_url")
 MODEL = CONFIG.get("model") or ""
 API_KEY = CONFIG.get("api_key") or ""
+USER_KEYS = user_keys_allowed(cfg)
 MAX_TOOL_CALLS = int(CONFIG.get("max_tool_calls", 8))
 # request_timeout bounds one call; a question is many, so bound those too.
 ANSWER_TIMEOUT = float(CONFIG.get("answer_timeout", 180))
@@ -172,58 +179,67 @@ def endpoints():
     return [MAIN, FALLBACK]
 
 
+class CannotAsk(Exception):
+    """Why no model can be asked this question, as the reply that says so."""
+
+
 def stream_round(endpoint, messages, tools, budget):
     """One streamed round from one endpoint, given up on as soon as it falls silent."""
+    user_key = bool(endpoint.get("user_key"))
+    if user_key:
+        # A question runs for minutes, and the host may resolve elsewhere by then.
+        try:
+            check_user_base_url(endpoint["base_url"])
+        except ValueError as exc:
+            raise CannotAsk(str(exc)) from None
     headers = {"Content-Type": "application/json"}
     if endpoint.get("api_key"):
         headers["Authorization"] = f"Bearer {endpoint['api_key']}"
-    payload = chat_payload(endpoint.get("model") or "", messages, tools, THINKING)
+    payload = chat_payload(
+        endpoint.get("model") or "", messages, tools, THINKING, user_key
+    )
     payload["stream"] = True
     deadline = time.monotonic() + budget
 
-    with requests.post(
-        f"{endpoint['base_url'].rstrip('/')}/chat/completions",
-        headers=headers,
-        json=payload,
-        stream=True,
-        timeout=min(STALL_TIMEOUT, budget),
-    ) as response:
+    with (
+        requests.post(
+            f"{endpoint['base_url'].rstrip('/')}/chat/completions",
+            headers=headers,
+            json=payload,
+            stream=True,
+            timeout=min(STALL_TIMEOUT, budget),
+            # A redirect would take a user's key past the base_url check.
+            allow_redirects=not user_key,
+        ) as response,
+        cut_off_at(response, deadline),
+    ):
+        if user_key and 300 <= response.status_code < 400:
+            raise requests.exceptions.HTTPError(
+                f"{response.status_code} redirect not followed", response=response
+            )
         if response.status_code >= 400:
             # The status alone says nothing: a refused request looks identical
             # whether the context was too long, a tool schema was rejected or
             # the model was unavailable, and the answer the user sees is the
             # same sentence either way. The server's own words tell them apart.
+            # A user's provider may echo part of their key, so not its words.
+            said = "" if user_key else f"{response.text[:600]} "
             log(
-                f"model refused the request: {response.status_code} "
-                f"{response.text[:600]} "
+                f"model refused the request: {response.status_code} {said}"
                 f"(messages={len(messages)}, tools={len(tools)}, "
                 f"payload={len(json.dumps(messages)) + len(json.dumps(tools))} chars)"
             )
         response.raise_for_status()
-        deltas = []
-        for line in response.iter_lines():
-            if time.monotonic() > deadline:
-                raise requests.exceptions.Timeout(
-                    f"no full answer within {budget:.0f}s"
-                )
-            if not line.startswith(b"data:"):
-                continue
-            data = line[len(b"data:") :].strip()
-            if data == b"[DONE]":
-                break
-            choices = json.loads(data).get("choices") or []
-            if choices:
-                deltas.append(choices[0].get("delta") or {})
-    return merge_deltas(deltas)
+        return streamed_message(response)
 
 
-def chat(messages, tools, timeout=None):
-    """One chat-completions round, moved to the other endpoint if the first fails."""
+def chat(route, messages, tools, timeout=None):
+    """One chat-completions round, moved along `route()` if an endpoint fails."""
     global _main_skipped_until
     deadline = time.monotonic() + (timeout or TIMEOUT)
 
     last: Exception | None = None
-    for endpoint in endpoints():
+    for endpoint in route():
         if (left := remaining(deadline, floor=1.0)) is None:
             break
         try:
@@ -241,13 +257,27 @@ def chat(messages, tools, timeout=None):
     raise last if last is not None else RuntimeError("no attempt was made")
 
 
+def route_for(own):
+    """The endpoints each round tries: a user's own (`own`), else the instance's."""
+    if own is None:
+        if not BASE_URL:
+            raise CannotAsk("No assistant is configured on this instance.")
+        return endpoints
+    try:
+        own = check_user_endpoint(own)
+    except ValueError as exc:
+        raise CannotAsk(str(exc)) from None
+    # Tried twice like MAIN, and never swapped for the instance's endpoints.
+    return lambda: [own, own]
+
+
 def remaining(deadline, floor=5.0):
     """Seconds left before the answer is due, or None when too few to be useful."""
     left = deadline - time.monotonic()
     return left if left >= floor else None
 
 
-def answer(conversation, context_type, context_id, user, token):
+def answer(conversation, context_type, context_id, user, token, route):
     """The answer, the tools it took to get there, and any filter it built."""
     tools = list_tools(token, context_type)
     offered = {tool["function"]["name"] for tool in tools}
@@ -262,7 +292,7 @@ def answer(conversation, context_type, context_id, user, token):
         if (left := remaining(deadline)) is None:
             log("out of time before the model finished; answering from what it has")
             break
-        message = chat(messages, tools, timeout=left)
+        message = chat(route, messages, tools, timeout=left)
         calls = message.get("tool_calls") or []
         if not calls:
             return (message.get("content") or "").strip(), trace, proposal(trace)
@@ -297,11 +327,11 @@ def answer(conversation, context_type, context_id, user, token):
         return OUT_OF_TIME, trace, proposal(trace)
     # No tools on the last word, or the model asks for another instead of
     # answering and the reply comes back empty.
-    text = (chat(messages, [], timeout=left).get("content") or "").strip()
+    text = (chat(route, messages, [], timeout=left).get("content") or "").strip()
     return text, trace, proposal(trace)
 
 
-def answer_from_facts(obj_id, analysis_id, token):
+def answer_from_facts(obj_id, analysis_id, token, route):
     """A FLARE triage the model only interprets, or None when the analysis is not one."""
     trace = []
 
@@ -346,7 +376,9 @@ def answer_from_facts(obj_id, analysis_id, token):
     )
     listed = "\n".join(f"- {fact}" for fact in facts)
     prompt = FACTS_PROMPT.format(obj_id=obj_id, facts=listed)
-    reading = chat([{"role": "user", "content": prompt}], [], timeout=ANSWER_TIMEOUT)
+    reading = chat(
+        route, [{"role": "user", "content": prompt}], [], timeout=ANSWER_TIMEOUT
+    )
     notify = "yes" if flare_notifies(flare) else "no"
     text = f"{(reading.get('content') or '').strip()}\n\n{listed}\n\nNOTIFY: {notify}"
     return text.strip(), trace, None
@@ -631,6 +663,14 @@ def respond(message_id):
                 session, requester_id, context_id
             ):
                 context_type = context_id = None
+            # A query run is skybot's, so it always answers on the instance.
+            own = None
+            if USER_KEYS and query_id_of(message, user) is None:
+                own = user_endpoint(
+                    session.scalar(
+                        sa.select(AIConnection).where(AIConnection.user_id == user_id)
+                    )
+                )
             token_id = service_token(session, requester_id).id
             analysis_id = triggering_analysis(session, message, user)
 
@@ -638,19 +678,29 @@ def respond(message_id):
         trace, built = [], None
         failed = False
         try:
+            route = route_for(own)
             reply = None
             if analysis_id is not None:
-                reply = answer_from_facts(context_id, analysis_id, token_id)
+                reply = answer_from_facts(context_id, analysis_id, token_id, route)
             if reply is None:
                 reply = answer(
-                    conversation, context_type, context_id, profile, token_id
+                    conversation, context_type, context_id, profile, token_id, route
                 )
             text, trace, built = reply
             failed = text == OUT_OF_TIME
+        except CannotAsk as exc:
+            failed, text = True, str(exc)
         except Exception as exc:
             failed = True
             log(f"assistant failed on message {message_id}: {exc}")
-            if misconfigured(exc):
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if own is not None and status is not None and status < 500:
+                text = (
+                    f"Your AI provider refused the request (HTTP {status}). Check "
+                    "the key, model and base URL of the AI connection in your "
+                    "profile, where you can also test it."
+                )
+            elif misconfigured(exc):
                 text = "The assistant is not set up correctly; tell an administrator."
             elif isinstance(exc, SWITCH_ERRORS):
                 # Distinguishable from a fault in what was asked: a reader who
@@ -714,7 +764,7 @@ class AssistantHandler(tornado.web.RequestHandler):
             self.set_status(400)
             return self.write({"status": "error", "message": "Malformed JSON"})
 
-        if not BASE_URL:
+        if not (BASE_URL or USER_KEYS):
             self.set_status(503)
             return self.write(
                 {"status": "error", "message": "app.assistant.base_url is not set"}
@@ -730,7 +780,7 @@ def make_app():
 
 
 if __name__ == "__main__":
-    if not BASE_URL:
+    if not (BASE_URL or USER_KEYS):
         log("app.assistant.base_url is not set; the service will refuse requests")
     clear_service_tokens()
     port = int(cfg["ports.assistant"])

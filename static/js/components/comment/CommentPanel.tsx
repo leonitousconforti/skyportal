@@ -29,9 +29,9 @@ import dayjs from "dayjs";
 
 import type { ChatSpace } from "../../contexts/CommentPanelContext";
 import { useCommentPanel } from "../../contexts/CommentPanelContext";
-import { useGetConfigQuery } from "../../ducks/config";
 import { useGetProfileQuery } from "../../ducks/profile";
 import {
+  useAssistantAvailable,
   useDeleteAssistantConversationMutation,
   useGetAssistantConversationsQuery,
   useRenameAssistantConversationMutation,
@@ -90,8 +90,7 @@ const CommentPanel = ({ inline = false }: CommentPanelProps) => {
     assistantChannel,
     setAssistantChannel,
   } = useCommentPanel();
-  const assistantEnabled =
-    useGetConfigQuery().data?.["assistantEnabled"] === true;
+  const assistantEnabled = useAssistantAvailable();
   const userId = useGetProfileQuery().data?.id;
   const [newChannel, setNewChannel] = useState<string | null>(null);
   const [added, setAdded] = useState<Record<ChatSpace, string[]>>({

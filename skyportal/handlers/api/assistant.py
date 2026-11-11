@@ -5,8 +5,13 @@ from tornado.ioloop import IOLoop
 from baselayer.app.access import auth_or_token
 from baselayer.app.env import load_env
 
-from ...models import AssistantMessage
-from ...utils.assistant import CONTEXT_DESCRIPTIONS, is_enabled, post_to_assistant
+from ...models import AIConnection, AssistantMessage
+from ...utils.assistant import (
+    CONTEXT_DESCRIPTIONS,
+    is_enabled,
+    post_to_assistant,
+    user_keys_allowed,
+)
 from ..base import BaseHandler
 
 _, cfg = load_env()
@@ -113,14 +118,23 @@ class AssistantMessageHandler(BaseHandler):
         if body.notify and not body.notify.keys() <= {"users", "groups"}:
             return self.error("`notify` may only name `users` and `groups`")
 
-        if not is_enabled(cfg):
-            return self.error("No assistant is configured on this instance.")
         if not body.text.strip():
             return self.error("`text` must not be empty")
         if body.context_type not in (None, *CONTEXT_DESCRIPTIONS):
             return self.error(f"Invalid context_type: {body.context_type}")
 
         async with self.AsyncSession() as session:
+            # Without the instance's endpoint, only a user's own connection answers.
+            if not is_enabled(cfg) and not (
+                user_keys_allowed(cfg)
+                and await session.scalar(
+                    sa.select(AIConnection.id).where(
+                        AIConnection.user_id == self.associated_user_object.id
+                    )
+                )
+            ):
+                return self.error("No assistant is configured on this instance.")
+
             message = AssistantMessage(
                 user_id=self.associated_user_object.id,
                 text=body.text,

@@ -1,7 +1,12 @@
+import contextlib
 import json
 import re
+import threading
+import time
 
 import requests
+
+from .user_url import check_user_base_url
 
 SYSTEM_PROMPT = """You are an assistant inside SkyPortal, a data platform for \
 time-domain and multi-messenger astronomy. You are talking with an astronomer \
@@ -119,6 +124,46 @@ def build_messages(
 
 def is_enabled(cfg):
     return bool((cfg.get("app.assistant") or {}).get("base_url"))
+
+
+def user_keys_allowed(cfg):
+    """Whether a user's own AI connection may answer their chat questions."""
+    return bool((cfg.get("app.assistant") or {}).get("allow_user_keys"))
+
+
+# Where an openai_compatible connection without a base_url is sent.
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+
+
+def user_endpoint(connection):
+    """The endpoint a user's own AIConnection answers on, or None if it cannot.
+
+    It still has to pass `check_user_endpoint` right before use.
+    """
+    if connection is None or connection.provider != "openai_compatible":
+        return None
+    return {
+        "base_url": connection.base_url or OPENAI_BASE_URL,
+        "model": connection.model or "",
+        "api_key": connection.api_key or "",
+        "user_key": True,
+    }
+
+
+def check_user_endpoint(endpoint):
+    """`endpoint` with its base URL checked, or ValueError saying what to fix."""
+    if not endpoint["model"]:
+        raise ValueError(
+            "Set a model in the AI connection in your profile for the assistant "
+            "to use."
+        )
+    # Such a header is refused with an error that quotes it, key and all.
+    if not (endpoint["api_key"].isascii() and endpoint["api_key"].isprintable()):
+        raise ValueError(
+            "The key in your AI connection has a line break or a non-ASCII "
+            "character; enter it again."
+        )
+    return {**endpoint, "base_url": check_user_base_url(endpoint["base_url"])}
 
 
 def post_to_assistant(cfg, message_id):
@@ -325,7 +370,7 @@ def offered_tools(tools, context_type=None):
     ]
 
 
-def chat_payload(model, messages, tools, thinking=False):
+def chat_payload(model, messages, tools, thinking=False, user_key=False):
     """The body of a chat-completions request.
 
     Here rather than in the service because the service calls init_db at
@@ -335,13 +380,112 @@ def chat_payload(model, messages, tools, thinking=False):
     `tools` is omitted when empty rather than sent as []: the last round asks
     for an answer with no tools left to call, and a server that rejects an
     empty array turns that into a 400 the user reads as "something went wrong".
+
+    `user_key` marks a user's own provider, which gets neither the vLLM-only
+    chat_template_kwargs (OpenAI refuses unknown fields) nor a temperature
+    (OpenAI's reasoning models and recent Claude models refuse one).
     """
-    payload = {"model": model, "messages": messages, "temperature": 0}
+    payload = {"model": model, "messages": messages}
+    if not user_key:
+        payload["temperature"] = 0
     if tools:
         payload["tools"] = tools
-    if not thinking:
+    if not (thinking or user_key):
         payload["chat_template_kwargs"] = {"enable_thinking": False}
     return payload
+
+
+PROBE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "confirm_connection",
+        "description": "Confirm that this connection works.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+
+def _provider_error(response, api_key):
+    """The provider's own short reason for refusing a request, without the key."""
+    try:
+        body = response.json()
+    except ValueError:
+        return ""
+    # OpenAI nests it under "error", vLLM puts it at the top, Ollama a string.
+    error = body.get("error", body) if isinstance(body, dict) else None
+    if isinstance(error, dict):
+        error = error.get("message")
+    if not isinstance(error, str):
+        return ""
+    if api_key:
+        error = error.replace(api_key, "[key]")
+    return " ".join(error.split())[:300]
+
+
+def probe(endpoint, timeout=30):
+    """Whether `endpoint` can drive the assistant, which answers by calling tools.
+
+    Sends the streamed request the assistant would, since a provider may refuse
+    a stream it would answer whole, and gives up after `timeout` seconds in all.
+    Returns {"outcome": "works" | "no_tool_calls" | "failed", "message": str}.
+    """
+
+    def result(outcome, message):
+        return {"outcome": outcome, "message": message}
+
+    try:
+        endpoint = check_user_endpoint(endpoint)
+    except ValueError as exc:
+        return result("failed", str(exc))
+    headers = {}
+    if endpoint["api_key"]:
+        headers["Authorization"] = f"Bearer {endpoint['api_key']}"
+    payload = chat_payload(
+        endpoint["model"],
+        [{"role": "user", "content": "Call confirm_connection."}],
+        [PROBE_TOOL],
+        user_key=True,
+    )
+    payload["stream"] = True
+    deadline = time.monotonic() + timeout
+    try:
+        with (
+            requests.post(
+                f"{endpoint['base_url'].rstrip('/')}/chat/completions",
+                headers=headers,
+                json=payload,
+                stream=True,
+                timeout=timeout,
+                # A redirect would take the key past the base_url check.
+                allow_redirects=False,
+            ) as response,
+            cut_off_at(response, deadline),
+        ):
+            if response.status_code >= 300:
+                error = _provider_error(response, endpoint["api_key"])
+                return result(
+                    "failed",
+                    f"The provider answered with HTTP {response.status_code}"
+                    + (f": {error}" if error else "."),
+                )
+            message = streamed_message(response)
+    except requests.exceptions.Timeout:
+        return result("failed", f"The provider did not answer within {timeout} s.")
+    except requests.exceptions.RequestException:
+        return result("failed", f"Could not reach {endpoint['base_url']}.")
+    except (ValueError, LookupError, TypeError, AttributeError):
+        message = {}
+    if message.get("tool_calls"):
+        return result("works", "The model called a tool, so the assistant can use it.")
+    if message.get("content"):
+        return result(
+            "no_tool_calls",
+            "The model replied but did not call the tool it was offered. The "
+            "assistant answers by calling tools, so it needs a model that can.",
+        )
+    return result(
+        "failed", "The reply was not a streamed chat completion; check the base URL."
+    )
 
 
 def merge_deltas(deltas):
@@ -366,3 +510,46 @@ def merge_deltas(deltas):
     if calls:
         message["tool_calls"] = [calls[index] for index in sorted(calls)]
     return message
+
+
+def streamed_message(response):
+    """The message the server-sent events of a chat completion add up to."""
+    deltas = []
+    for line in response.iter_lines():
+        if not line.startswith(b"data:"):
+            continue
+        data = line[len(b"data:") :].strip()
+        if data == b"[DONE]":
+            break
+        choices = json.loads(data).get("choices") or []
+        if choices:
+            deltas.append(choices[0].get("delta") or {})
+    return merge_deltas(deltas)
+
+
+@contextlib.contextmanager
+def cut_off_at(response, deadline):
+    """Read `response` inside the block, or raise Timeout once `deadline` passes.
+
+    A read timeout bounds each read, not their sum, and a server can send one
+    byte at a time just inside it, so the socket is shut at the deadline.
+    """
+    cut = threading.Event()
+
+    def shut():
+        cut.set()
+        with contextlib.suppress(Exception):
+            response.raw.shutdown()
+
+    timer = threading.Timer(max(deadline - time.monotonic(), 0), shut)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield
+    except Exception:
+        if not cut.is_set():
+            raise
+    finally:
+        timer.cancel()
+    if cut.is_set():
+        raise requests.exceptions.Timeout("no full answer in time")

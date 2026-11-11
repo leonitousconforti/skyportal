@@ -1,20 +1,31 @@
 import { useEffect, useState } from "react";
 
+import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 
 import { showNotification } from "baselayer/components/Notifications";
 import { useAppDispatch } from "../../../types/hooks";
+import type { AIConnectionTest } from "../../../ducks/aiConnection";
 import {
   useDeleteAIConnectionMutation,
   useGetAIConnectionQuery,
+  useTestAIConnectionMutation,
   useUpdateAIConnectionMutation,
 } from "../../../ducks/aiConnection";
+import { useGetConfigQuery } from "../../../ducks/config";
 import Button from "../../Button";
 import CustomizeOpenAIParameters from "./CustomizeOpenAIParameters";
 
 const PROVIDERS = [{ value: "openai_compatible", label: "OpenAI-compatible" }];
+
+const TEST_SEVERITY = {
+  works: "success",
+  no_tool_calls: "warning",
+  failed: "error",
+} as const;
 
 const AIConnectionPreferences = () => {
   const dispatch = useAppDispatch();
@@ -23,6 +34,10 @@ const AIConnectionPreferences = () => {
     useUpdateAIConnectionMutation();
   const [deleteConnection, { isLoading: isRemoving }] =
     useDeleteAIConnectionMutation();
+  const [testConnection, { isLoading: isTesting }] =
+    useTestAIConnectionMutation();
+  const assistantUserKeys =
+    useGetConfigQuery().data?.["assistantUserKeys"] === true;
 
   const [provider, setProvider] = useState("openai_compatible");
   const [baseUrl, setBaseUrl] = useState("");
@@ -30,6 +45,7 @@ const AIConnectionPreferences = () => {
   const [apiKey, setApiKey] = useState("");
   const [apiKeyError, setApiKeyError] = useState(false);
   const [baseUrlError, setBaseUrlError] = useState(false);
+  const [testResult, setTestResult] = useState<AIConnectionTest | null>(null);
 
   // The saved key is never sent back, so its field always starts blank.
   useEffect(() => {
@@ -39,6 +55,7 @@ const AIConnectionPreferences = () => {
     setApiKey("");
     setApiKeyError(false);
     setBaseUrlError(false);
+    setTestResult(null);
   }, [connection]);
 
   if (isLoading) {
@@ -51,6 +68,14 @@ const AIConnectionPreferences = () => {
     !connection?.api_key_set ||
     provider !== connection.provider ||
     (trimmedBaseUrl || null) !== connection.base_url;
+
+  // The test runs on the saved connection, so edits have to be saved first.
+  const edited =
+    !connection ||
+    provider !== connection.provider ||
+    (trimmedBaseUrl || null) !== connection.base_url ||
+    (model.trim() || null) !== connection.model ||
+    apiKey.trim() !== "";
 
   let apiKeyPlaceholder = "";
   if (connection?.api_key_set) {
@@ -92,6 +117,15 @@ const AIConnectionPreferences = () => {
     }
   };
 
+  const onTest = async () => {
+    setTestResult(null);
+    try {
+      setTestResult(await testConnection().unwrap());
+    } catch {
+      // error notification handled by the baseQuery
+    }
+  };
+
   const onRemove = async () => {
     try {
       await deleteConnection().unwrap();
@@ -103,6 +137,12 @@ const AIConnectionPreferences = () => {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {assistantUserKeys && (
+        <Typography variant="body2" color="textSecondary">
+          The assistant answers your chat questions with this connection too, so
+          your questions, and what its tools read for you, go to this provider.
+        </Typography>
+      )}
       <TextField
         select
         name="provider"
@@ -140,7 +180,11 @@ const AIConnectionPreferences = () => {
         value={model}
         onChange={(event) => setModel(event.target.value)}
         data-testid="AIConnection_model"
-        helperText="Leave blank for the model in your summary settings or this instance's default"
+        helperText={
+          assistantUserKeys
+            ? "The assistant needs a model here. Left blank, summaries use the one in your summary settings or this instance's default"
+            : "Leave blank for the model in your summary settings or this instance's default"
+        }
       />
       <TextField
         name="api_key"
@@ -165,6 +209,17 @@ const AIConnectionPreferences = () => {
         >
           Save
         </Button>
+        {connection && assistantUserKeys && (
+          <Button
+            async
+            loading={isTesting}
+            onClick={onTest}
+            disabled={edited}
+            data-testid="AIConnection_test"
+          >
+            Test connection
+          </Button>
+        )}
         {connection && (
           <Button
             secondary
@@ -176,6 +231,14 @@ const AIConnectionPreferences = () => {
           </Button>
         )}
       </Box>
+      {testResult && (
+        <Alert
+          severity={TEST_SEVERITY[testResult.outcome]}
+          data-testid="AIConnection_test_result"
+        >
+          {testResult.message}
+        </Alert>
+      )}
       {connection && <CustomizeOpenAIParameters />}
     </Box>
   );

@@ -227,3 +227,206 @@ def test_streamed_tool_calls_are_put_back_together():
         "role": "assistant",
         "content": "Hello",
     }
+
+
+def test_a_user_key_is_allowed_only_when_the_operator_says_so():
+    from skyportal.utils.assistant import user_keys_allowed
+
+    assert not user_keys_allowed({"app.assistant": None})
+    assert not user_keys_allowed({"app.assistant": {"base_url": "http://host/v1"}})
+    allowed = {"app.assistant": {"allow_user_keys": True}}
+    assert user_keys_allowed(allowed)
+    # The instance's own endpoint is still what "enabled" means.
+    assert not is_enabled(allowed)
+
+
+def test_a_user_endpoint_gets_a_plain_request():
+    # api.openai.com refuses the vLLM-only chat_template_kwargs, and OpenAI's
+    # reasoning models and recent Claude models refuse a temperature.
+    from skyportal.utils.assistant import chat_payload
+
+    instance = chat_payload("m", [], [{"type": "function"}])
+    assert instance["temperature"] == 0
+    assert instance["chat_template_kwargs"] == {"enable_thinking": False}
+
+    own = chat_payload("m", [], [{"type": "function"}], user_key=True)
+    assert own == {"model": "m", "messages": [], "tools": [{"type": "function"}]}
+
+
+def _connection(**fields):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        **{
+            "provider": "openai_compatible",
+            "base_url": None,
+            "model": "gpt-5-mini",
+            "api_key": "sk-secret-key",
+            **fields,
+        }
+    )
+
+
+def test_a_connection_becomes_a_user_endpoint():
+    from skyportal.utils.assistant import user_endpoint
+
+    assert user_endpoint(_connection()) == {
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-5-mini",
+        "api_key": "sk-secret-key",
+        "user_key": True,
+    }
+    own = user_endpoint(_connection(base_url="https://llm.example/v1", model=None))
+    assert own["base_url"] == "https://llm.example/v1"
+    assert own["model"] == ""
+    assert user_endpoint(None) is None
+    assert user_endpoint(_connection(provider="another_protocol")) is None
+
+
+class _Response:
+    """A streamed reply: `lines` of server-sent events, or a JSON `body`."""
+
+    def __init__(self, status_code, lines=(), body=None):
+        self.status_code = status_code
+        self._lines = lines
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def iter_lines(self):
+        yield from self._lines
+
+    def json(self):
+        return self._body
+
+
+def _events(*deltas):
+    lines = [
+        b"data: " + json.dumps({"choices": [{"delta": delta}]}).encode()
+        for delta in deltas
+    ]
+    return [*lines, b"data: [DONE]"]
+
+
+def _probe(monkeypatch, response, **fields):
+    """The probe's result for `response`, and the request it sent."""
+    from skyportal.utils import assistant
+
+    sent = {}
+
+    def post(url, **kwargs):
+        sent.update(kwargs, url=url)
+        return response
+
+    # No DNS here; test_user_url.py covers the check itself.
+    monkeypatch.setattr(assistant, "check_user_base_url", lambda url: url)
+    monkeypatch.setattr(assistant.requests, "post", post)
+    endpoint = assistant.user_endpoint(_connection(**fields))
+    return assistant.probe(endpoint), sent
+
+
+def test_the_probe_sees_a_tool_call(monkeypatch):
+    call = {"index": 0, "id": "a", "function": {"name": "confirm_connection"}}
+    response = _Response(200, _events({"tool_calls": [call]}))
+    result, sent = _probe(monkeypatch, response)
+    assert result["outcome"] == "works"
+    assert sent["url"] == "https://api.openai.com/v1/chat/completions"
+    assert sent["headers"] == {"Authorization": "Bearer sk-secret-key"}
+    assert sent["allow_redirects"] is False
+    assert sent["timeout"] == 30
+    # Streamed like the assistant's own requests.
+    assert sent["stream"] is True
+    assert sent["json"]["stream"] is True
+    assert "temperature" not in sent["json"]
+    assert len(sent["json"]["tools"]) == 1
+
+
+def test_the_probe_sees_a_reply_without_a_tool_call(monkeypatch):
+    response = _Response(200, _events({"content": "Connected."}))
+    result, _ = _probe(monkeypatch, response)
+    assert result["outcome"] == "no_tool_calls"
+    assert "tool" in result["message"]
+
+
+def test_the_probe_sees_a_reply_that_is_not_a_stream(monkeypatch):
+    reply = {"choices": [{"message": {"content": "Connected."}}]}
+    response = _Response(200, [json.dumps(reply).encode()])
+    result, _ = _probe(monkeypatch, response)
+    assert result["outcome"] == "failed"
+    assert "base URL" in result["message"]
+
+
+def test_the_probe_reports_a_refusal_without_the_key(monkeypatch):
+    error = {"error": {"message": "Incorrect API key provided: sk-secret-key."}}
+    result, _ = _probe(monkeypatch, _Response(401, body=error))
+    assert result["outcome"] == "failed"
+    assert "HTTP 401" in result["message"]
+    assert "Incorrect API key provided" in result["message"]
+    assert "sk-secret-key" not in result["message"]
+
+
+def test_the_probe_sends_nothing_it_cannot_send_safely(monkeypatch):
+    from skyportal.utils import assistant
+
+    def post(*args, **kwargs):
+        raise AssertionError("the probe should not have sent a request")
+
+    monkeypatch.setattr(assistant.requests, "post", post)
+
+    def probe(**fields):
+        return assistant.probe(assistant.user_endpoint(_connection(**fields)))
+
+    result = probe(base_url="https://127.0.0.1/v1")
+    assert result["outcome"] == "failed"
+    assert "public" in result["message"]
+
+    result = probe(model=None)
+    assert result["outcome"] == "failed"
+    assert "Set a model" in result["message"]
+
+    # requests would refuse the header and quote it, key and all.
+    result = probe(api_key="sk-secret\nkey")
+    assert result["outcome"] == "failed"
+    assert "line break" in result["message"]
+    assert "secret" not in result["message"]
+
+
+def test_a_response_that_drips_is_cut_off_at_the_deadline():
+    import contextlib
+    import socket
+    import threading
+    import time
+
+    import pytest
+    import requests
+
+    from skyportal.utils.assistant import cut_off_at, streamed_message
+
+    server = socket.create_server(("127.0.0.1", 0))
+
+    def drip():
+        connection, _ = server.accept()
+        with connection, contextlib.suppress(OSError):
+            connection.recv(65536)
+            connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n")
+            # Each byte comes well within the read timeout.
+            for _ in range(1000):
+                connection.sendall(b"d")
+                time.sleep(0.1)
+
+    threading.Thread(target=drip, daemon=True).start()
+    started = time.monotonic()
+    with pytest.raises(requests.exceptions.Timeout):
+        with (
+            requests.get(
+                f"http://127.0.0.1:{server.getsockname()[1]}", stream=True, timeout=5
+            ) as response,
+            cut_off_at(response, time.monotonic() + 0.5),
+        ):
+            streamed_message(response)
+    assert time.monotonic() - started < 3
+    server.close()
