@@ -365,8 +365,11 @@ def _analysis_inputs(analysis_parameters):
 
     Strips data-URL parameters from ``analysis_parameters`` in place, after
     copying them into the inputs, so the stored analysis keeps only file names.
+    The AI API key is dropped the same way, as the stored analysis is readable
+    by its groups.
     """
     inputs = {"analysis_parameters": analysis_parameters.copy()}
+    analysis_parameters.pop("openai_api_key", None)
 
     # Opt-in Galactic-extinction correction of the photometry sent to the service.
     correct_extinction = str_to_bool(
@@ -1645,10 +1648,6 @@ class AnalysisHandler(BaseHandler):
 
                     analysis_dict = recursive_to_dict(analysis)
 
-                    # dont return the openai api key if its there
-                    if "analysis_parameters" in analysis_dict:
-                        analysis_dict["analysis_parameters"].pop("openai_api_key", None)
-
                     stmt = AnalysisService.select(self.current_user).where(
                         AnalysisService.id == analysis.analysis_service_id
                     )
@@ -1710,10 +1709,6 @@ class AnalysisHandler(BaseHandler):
                     # column and the groups for all rows is what made it slow.
                     if obj_id:
                         analysis_dict = recursive_to_dict(a)
-                        if "analysis_parameters" in analysis_dict:
-                            analysis_dict["analysis_parameters"].pop(
-                                "openai_api_key", None
-                            )
                         analysis_dict["groups"] = [
                             {"id": g.id, "name": g.name} for g in a.groups
                         ]
@@ -1792,8 +1787,6 @@ class AnalysisHandler(BaseHandler):
                     if analysis is None:
                         return self.error("Cannot access this Analysis.", status=403)
                     analysis_dict = recursive_to_dict(analysis)
-                    if "analysis_parameters" in analysis_dict:
-                        analysis_dict["analysis_parameters"].pop("openai_api_key", None)
                     service = await session.scalar(
                         AnalysisService.select(self.current_user).where(
                             AnalysisService.id == analysis.analysis_service_id
@@ -1829,8 +1822,6 @@ class AnalysisHandler(BaseHandler):
                 ret_array = []
                 for a in analyses:
                     analysis_dict = recursive_to_dict(a)
-                    if "analysis_parameters" in analysis_dict:
-                        analysis_dict["analysis_parameters"].pop("openai_api_key", None)
                     analysis_dict["groups"] = [
                         {"id": g.id, "name": g.name} for g in a.groups
                     ]
