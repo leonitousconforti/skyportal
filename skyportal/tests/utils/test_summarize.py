@@ -24,12 +24,23 @@ def test_a_personal_key_defaults_to_openai():
     assert settings["base_url"] is None
 
 
-def test_a_personal_key_goes_to_its_own_url():
+def test_a_personal_key_goes_to_its_own_url(monkeypatch):
+    # No DNS here; test_user_url.py covers the check itself.
+    monkeypatch.setattr(
+        "skyportal.utils.summarize.check_user_base_url", lambda url: url
+    )
     settings = user_summarizer(
         _user(active=True, apikey="key", base_url="https://api.anthropic.com/v1")
     )
     assert settings["base_url"] == "https://api.anthropic.com/v1"
     assert settings["api_key"] == "key"
+
+
+def test_a_personal_key_is_not_sent_to_a_private_url():
+    with pytest.raises(ValueError):
+        user_summarizer(
+            _user(active=True, apikey="key", base_url="https://127.0.0.1/v1")
+        )
 
 
 def test_personal_model_parameters_carry_through():

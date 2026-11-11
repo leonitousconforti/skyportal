@@ -2296,8 +2296,14 @@ class GcnEventSummarizeHandler(BaseHandler):
         """
         if not dateobs:
             return self.error("Missing dateobs")
-        # A user's own account wins over the instance's model.
-        settings = user_summarizer(self.associated_user_object)
+        # A user's own account wins over the instance's model. Its base_url
+        # check resolves the host, so it runs off the event loop.
+        try:
+            settings = await IOLoop.current().run_in_executor(
+                None, user_summarizer, self.associated_user_object
+            )
+        except ValueError as e:
+            return self.error(str(e))
         if settings is None and not summarizer_configured():
             return self.error("No summarization model is configured")
 

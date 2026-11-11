@@ -11,6 +11,8 @@ import copy
 from baselayer.app.env import load_env
 from baselayer.log import make_log
 
+from .user_url import check_user_base_url
+
 env, cfg = load_env()
 log = make_log("summarize")
 
@@ -27,15 +29,20 @@ def summarizer_configured():
 
 
 def user_summarizer(user):
-    """A user's own model settings: their key, sent only to their own base_url."""
+    """A user's own model settings: their key, sent only to their own base_url.
+
+    Raises ValueError when that base_url fails `check_user_base_url`, rerun at
+    each use since its host can resolve elsewhere than when it was saved.
+    """
     preferences = (getattr(user, "preferences", None) or {}).get("summary", {})
     settings = (preferences or {}).get("OpenAI") or {}
     if not settings.get("active") or not settings.get("apikey"):
         return None
+    base_url = settings.get("base_url") or None
     return {
         **{k: v for k, v in settings.items() if k not in ("apikey", "active")},
         "api_key": settings["apikey"],
-        "base_url": settings.get("base_url") or None,
+        "base_url": check_user_base_url(base_url) if base_url else None,
     }
 
 
@@ -47,12 +54,14 @@ def summarize(prompt, context, timeout=60, settings=None):
         return None
 
     try:
-        from openai import OpenAI
+        from openai import DefaultHttpxClient, OpenAI
 
         client = OpenAI(
             api_key=api_key,
             base_url=settings.get("base_url") or None,
             timeout=timeout,
+            # A redirect would take the key past the base_url check.
+            http_client=DefaultHttpxClient(follow_redirects=False),
         )
         response = client.chat.completions.create(
             messages=[
