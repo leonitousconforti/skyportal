@@ -94,6 +94,8 @@ def send_email(recipients, subject, body, footer=None):
     if service not in ("sendgrid", "smtp"):
         raise Exception("Invalid email service; update config.yaml")
 
+    # EmailMessage rejects header values containing line breaks (\n, \x0c, ...)
+    subject = " ".join(subject.split())
     site = html.escape(cfg["app.title"])
     footer = footer or f'Sent by <a href="{get_app_base_url()}">{site}</a>'
     page = LAYOUT.format(

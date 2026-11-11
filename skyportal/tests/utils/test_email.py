@@ -30,7 +30,7 @@ def configured(monkeypatch):
     monkeypatch.setitem(cfg["invitations"], "email_body_preamble", "")
 
 
-def send_to(recipients, refuse=()):
+def send_to(recipients, refuse=(), subject="Subject"):
     sent = []
 
     def send(message):
@@ -40,7 +40,7 @@ def send_to(recipients, refuse=()):
 
     with patch.object(mail.smtplib, "SMTP") as smtp:
         smtp.return_value.__enter__.return_value.send_message.side_effect = send
-        mail.send_email(recipients, "Subject", "<p>Hi</p>")
+        mail.send_email(recipients, subject, "<p>Hi</p>")
     return sent
 
 
@@ -65,6 +65,11 @@ def test_one_refused_address_does_not_stop_the_rest():
     assert [message["To"] for message in sent] == ["a@example.edu", "b@example.edu"]
     with pytest.raises(mail.smtplib.SMTPRecipientsRefused):
         send_to(["gone@example.edu"], refuse=["gone@example.edu"])
+
+
+def test_line_breaks_in_subject_become_spaces():
+    sent = send_to(["a@example.edu"], subject="Reminder:\x0cfirst\nsecond")
+    assert sent[0]["Subject"] == "Reminder: first second"
 
 
 def test_text_part_keeps_link_addresses():
