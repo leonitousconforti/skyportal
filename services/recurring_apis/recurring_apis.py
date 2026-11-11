@@ -82,25 +82,32 @@ def perform_api_calls():
             else:
                 raise Exception("payload must be dictionary or string")
 
-            if recurring_api.method.upper() == "POST":
-                response_status, data = api(
-                    recurring_api.method.upper(),
-                    recurring_api.endpoint,
-                    token=token,
-                    host=HOST,
-                    data=data,
-                )
-            elif recurring_api.method.upper() == "GET":
-                response_status, data = api(
-                    recurring_api.method.upper(),
-                    recurring_api.endpoint,
-                    token=token,
-                    host=HOST,
-                    params=data,
-                )
-            else:
-                log("Unable to execute recurring API calls that are not GET or POST")
-                continue
+            # A call that raises (bad GET params, unreachable app) counts as a
+            # failure so next_call still advances.
+            try:
+                if recurring_api.method.upper() == "POST":
+                    response_status, data = api(
+                        recurring_api.method.upper(),
+                        recurring_api.endpoint,
+                        token=token,
+                        host=HOST,
+                        data=data,
+                    )
+                elif recurring_api.method.upper() == "GET":
+                    response_status, data = api(
+                        recurring_api.method.upper(),
+                        recurring_api.endpoint,
+                        token=token,
+                        host=HOST,
+                        params=data,
+                    )
+                else:
+                    log(
+                        "Unable to execute recurring API calls that are not GET or POST"
+                    )
+                    continue
+            except Exception as e:
+                response_status, data = None, str(e)
 
             while True:
                 recurring_api.next_call += timedelta(days=recurring_api.call_delay)
