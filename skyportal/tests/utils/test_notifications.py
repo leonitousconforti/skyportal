@@ -280,6 +280,16 @@ def test_followup_request_email():
     assert "observation_type: imaging" in html  # email keeps the raw payload key
     assert "Observability" in html and "TNS" in html  # buttons
 
+    data["comments"] = [
+        "bob (2024-01-01 00:00:00): <a href='https://evil.example'>new ephemeris</a>"
+    ]
+    data["request"]["payload"]["notes"] = "<img src='https://evil.example/x.png'>"
+    _, html = followup_request_email_notification(data)
+    assert "&lt;a href=&#x27;https://evil.example&#x27;&gt;new ephemeris" in html
+    assert "notes: &lt;img src=" in html
+    assert "<a href='https://evil.example'" not in html
+    assert "<img src='https://evil.example" not in html
+
     data["request"]["new"] = False
     subject, html = followup_request_email_notification(data)
     assert "Updated Follow-up Request: ZTF24abcdefg" in subject

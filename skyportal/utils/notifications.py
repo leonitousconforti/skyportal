@@ -857,14 +857,14 @@ def followup_request_email_notification(data):
         "<div><h4>Request:</h4><ul>"
         f"<li>Allocation: {data['request']['allocation']}</li>"
         f"<li>Group: {data['request']['group']}</li>"
-        f"<li>User: {data['request']['user']}</li>"
+        f"<li>User: {html.escape(data['request']['user'])}</li>"
         f"<li>Time: {data['request']['time']}</li>"
         "</ul></div>"
     )
 
     payload_section = "<div><h4>Payload:</h4><ul>"
     for key, value in data["request"]["payload"].items():
-        payload_section += f"<li>{key}: {value}</li>"
+        payload_section += f"<li>{html.escape(key)}: {html.escape(str(value))}</li>"
     payload_section += "</ul></div>"
 
     comments_section = ""
@@ -872,7 +872,7 @@ def followup_request_email_notification(data):
         if len(data["comments"]) > 0:
             comments_section = "<div><h4>Comments:</h4><ul>"
             for comment in data["comments"]:
-                comments_section += f"<li>{comment}</li>"
+                comments_section += f"<li>{html.escape(comment)}</li>"
 
             comments_section += "</ul></div>"
         else:
