@@ -6,6 +6,7 @@ the server and any client describe a payload with the same class.
 """
 
 from skyportal_py_models import (
+    ai_connection,
     allocations,
     analysis,
     annotations,
@@ -70,6 +71,7 @@ from skyportal_py_models import (
 )
 
 __all__ = [
+    "ai_connection",
     "allocations",
     "analysis",
     "annotations",

@@ -25617,6 +25617,60 @@ export interface components {
             message?: string;
             data?: components["schemas"]["ACLNoID"][];
         };
+        AIConnection: {
+            /** @description The owner of this connection. */
+            readonly user?: components["schemas"]["User"];
+            /** @description The user the connection belongs to. */
+            user_id: number;
+            /** @description The API the connection speaks, such as openai_compatible. */
+            provider: string;
+            /** @description Where requests and the key are sent. Null means the provider's default endpoint (api.openai.com for openai_compatible). */
+            base_url?: string | null;
+            /** @description The model to request. Null leaves it to the feature using the connection. */
+            model?: string | null;
+            /** @description The API key. Never serialized back to a client. */
+            _secrets?: string | null;
+            /** @description Unique object identifier. */
+            id?: number;
+        };
+        SingleAIConnection: {
+            /** @enum {string} */
+            status: "success";
+            message?: string;
+            data?: components["schemas"]["AIConnection"];
+        };
+        ArrayOfAIConnections: {
+            /** @enum {string} */
+            status: "success";
+            message?: string;
+            data?: components["schemas"]["AIConnection"][];
+        };
+        AIConnectionNoID: {
+            /** @description The owner of this connection. */
+            readonly user?: components["schemas"]["User"];
+            /** @description The user the connection belongs to. */
+            user_id: number;
+            /** @description The API the connection speaks, such as openai_compatible. */
+            provider: string;
+            /** @description Where requests and the key are sent. Null means the provider's default endpoint (api.openai.com for openai_compatible). */
+            base_url?: string | null;
+            /** @description The model to request. Null leaves it to the feature using the connection. */
+            model?: string | null;
+            /** @description The API key. Never serialized back to a client. */
+            _secrets?: string | null;
+        };
+        SingleAIConnectionNoID: {
+            /** @enum {string} */
+            status: "success";
+            message?: string;
+            data?: components["schemas"]["AIConnectionNoID"];
+        };
+        ArrayOfAIConnectionNoIDs: {
+            /** @enum {string} */
+            status: "success";
+            message?: string;
+            data?: components["schemas"]["AIConnectionNoID"][];
+        };
         Allocation: {
             readonly requests?: components["schemas"]["FollowupRequest"][];
             readonly default_requests?: components["schemas"]["DefaultFollowupRequest"][];

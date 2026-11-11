@@ -2,6 +2,7 @@
 from baselayer.app.models import *
 
 # SkyPortal models
+from .ai_connection import *
 from .allocation import *
 from .analysis import *
 from .annotation import *
