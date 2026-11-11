@@ -1,3 +1,4 @@
+import html
 import time
 import traceback
 from datetime import timedelta
@@ -92,7 +93,7 @@ def send_reminders():
                     f"<li>Start: {shift.start_date.strftime('%Y-%m-%d %H:%M')} UTC</li>"
                     f"<li>End: {shift.end_date.strftime('%Y-%m-%d %H:%M')} UTC</li>"
                     + (
-                        f"<li>Description: {shift.description}</li>"
+                        f"<li>Description: {html.escape(shift.description)}</li>"
                         if shift.description
                         else ""
                     )
@@ -120,7 +121,7 @@ def send_reminders():
                         recipients=[reminder.user.contact_email],
                         subject=f"{cfg['app.title']} - {plain_text}",
                         body=(
-                            f"<p>{plain_text}</p>"
+                            f"<p>{html.escape(plain_text)}</p>"
                             f"{extra_email_html}"
                             + button(
                                 f"{app_url}{url_endpoint}",

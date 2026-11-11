@@ -71,6 +71,8 @@ def preferences_footer():
 
 
 def as_text(fragment):
+    # lxml refuses to set text containing characters that are invalid in XML
+    fragment = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]", "", fragment)
     root = lxml.html.fragment_fromstring(fragment, create_parent="div")
     for link in root.iter("a"):
         href, label = link.get("href"), link.text_content().strip()
@@ -92,6 +94,8 @@ def send_email(recipients, subject, body, footer=None):
     if service not in ("sendgrid", "smtp"):
         raise Exception("Invalid email service; update config.yaml")
 
+    # EmailMessage rejects header values containing line breaks (\n, \x0c, ...)
+    subject = " ".join(subject.split())
     site = html.escape(cfg["app.title"])
     footer = footer or f'Sent by <a href="{get_app_base_url()}">{site}</a>'
     page = LAYOUT.format(

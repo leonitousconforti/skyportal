@@ -1,4 +1,5 @@
 import datetime
+import html
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -280,10 +281,11 @@ def mention_email_notification(target, data=None):
         f"{cfg['app.title']} - {author_username} mentioned you"
         f" in a comment on this source {source_name}"
     )
+    url = html.escape(f"{app_url}{target['url']}")
     body = (
-        f"<p>{author_username} mentioned you in a comment on "
-        f"<a href='{app_url}{target['url']}'>{source_name}</a>:</p>"
-        f"<blockquote>{comment_text}</blockquote>"
+        f"<p>{html.escape(author_username)} mentioned you in a comment on "
+        f"<a href='{url}'>{html.escape(source_name)}</a>:</p>"
+        f"<blockquote>{html.escape(comment_text)}</blockquote>"
     )
     return subject, body
 
@@ -855,14 +857,14 @@ def followup_request_email_notification(data):
         "<div><h4>Request:</h4><ul>"
         f"<li>Allocation: {data['request']['allocation']}</li>"
         f"<li>Group: {data['request']['group']}</li>"
-        f"<li>User: {data['request']['user']}</li>"
+        f"<li>User: {html.escape(data['request']['user'])}</li>"
         f"<li>Time: {data['request']['time']}</li>"
         "</ul></div>"
     )
 
     payload_section = "<div><h4>Payload:</h4><ul>"
     for key, value in data["request"]["payload"].items():
-        payload_section += f"<li>{key}: {value}</li>"
+        payload_section += f"<li>{html.escape(key)}: {html.escape(str(value))}</li>"
     payload_section += "</ul></div>"
 
     comments_section = ""
@@ -870,7 +872,7 @@ def followup_request_email_notification(data):
         if len(data["comments"]) > 0:
             comments_section = "<div><h4>Comments:</h4><ul>"
             for comment in data["comments"]:
-                comments_section += f"<li>{comment}</li>"
+                comments_section += f"<li>{html.escape(comment)}</li>"
 
             comments_section += "</ul></div>"
         else:
