@@ -14,6 +14,7 @@ import {
 import { useCurrentBuilder } from "../../../../hooks/useContexts";
 import { useBoomFilterVersion } from "../../../../ducks/boom_filter";
 import ModuleStreams, { surveyToken } from "../dialog/ModuleStreams";
+import { mapBlock } from "./blockTree";
 
 const SaveBlockDialogMenu = () => {
   const {
@@ -79,27 +80,13 @@ const SaveBlockDialogMenu = () => {
 
       const updateFilters = localFiltersUpdater || setFilters;
 
-      updateFilters((prevFilters: any[]) => {
-        const replaceBlock = (block: any): any => {
-          if (block.id !== blockId) {
-            return {
-              ...block,
-              children:
-                block.children?.map((child: any) =>
-                  child.category === "block" ? replaceBlock(child) : child,
-                ) || [],
-            };
-          }
-
-          const updatedBlock = {
-            ...block,
-            customBlockName: nameValue,
-            isTrue: block.isTrue !== false,
-          };
-          return updatedBlock;
-        };
-        return prevFilters.map(replaceBlock);
-      });
+      updateFilters((prevFilters: any[]) =>
+        mapBlock(prevFilters, blockId, (block) => ({
+          ...block,
+          customBlockName: nameValue,
+          isTrue: block.isTrue !== false,
+        })),
+      );
 
       setCustomBlocks((prev: any[]) => {
         const newName = `Custom.${nameValue}`;
