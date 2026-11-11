@@ -2,9 +2,10 @@
  * Survey efficiency analyses for observation plans.
  *
  * RTK Query conversion of the old `FETCH_SURVEY_EFFICIENCY_OBSERVATION_PLANS`
- * duck. The list query is injected into the central `skyportalApi` and provides
- * the `SurveyEfficiencyObservationPlan` tag; submit and delete are mutations
- * that invalidate it so any active list refetches.
+ * duck. The list queries (all analyses, and one plan's) are injected into the
+ * central `skyportalApi` and provide the `SurveyEfficiencyObservationPlan` tag;
+ * submit and delete are mutations that invalidate it so any active list
+ * refetches.
  *
  * Submit issues a `simsurvey` run (the backend kicks off the analysis); the old
  * duck used `API.GET` for it, so the mutation keeps the `GET` method with the
@@ -21,6 +22,13 @@ export const surveyEfficiencyObservationPlansApi = skyportalApi.injectEndpoints(
         void
       >({
         query: () => "api/survey_efficiency/observation_plan",
+        providesTags: ["SurveyEfficiencyObservationPlan"],
+      }),
+      getObservationPlanSurveyEfficiency: build.query<
+        RouteData<"GET /api/observation_plan/{observation_plan_request_id}/survey_efficiency">,
+        number | string
+      >({
+        query: (id) => `api/observation_plan/${id}/survey_efficiency`,
         providesTags: ["SurveyEfficiencyObservationPlan"],
       }),
       submitSurveyEfficiencyObservationPlan: build.mutation<
@@ -50,6 +58,7 @@ export const surveyEfficiencyObservationPlansApi = skyportalApi.injectEndpoints(
 
 export const {
   useGetSurveyEfficiencyObservationPlansQuery,
+  useGetObservationPlanSurveyEfficiencyQuery,
   useSubmitSurveyEfficiencyObservationPlanMutation,
   useDeleteSurveyEfficiencyObservationPlanMutation,
 } = surveyEfficiencyObservationPlansApi;
