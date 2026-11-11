@@ -530,12 +530,7 @@ async def get_source(
             ObjAnalysis.select(user).where(ObjAnalysis.obj_id == obj_id)
         )
         analyses = analyses_result.unique().all()
-        source_info["analyses"] = []
-        for analysis in analyses:
-            analysis_dict = recursive_to_dict(analysis)
-            if analysis_dict.get("analysis_parameters"):
-                analysis_dict["analysis_parameters"].pop("openai_api_key", None)
-            source_info["analyses"].append(analysis_dict)
+        source_info["analyses"] = [recursive_to_dict(analysis) for analysis in analyses]
     if include_period_exists:
         annotations_period_result = await session.scalars(
             Annotation.select(user).where(Annotation.obj_id == obj_id)
