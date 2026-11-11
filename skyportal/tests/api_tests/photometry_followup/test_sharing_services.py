@@ -1,10 +1,18 @@
+import contextvars
 import uuid
+from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 import sqlalchemy as sa
 
-from skyportal.models import DBSession, SharingServiceSubmission
-from skyportal.tests import api
+from skyportal.models import (
+    DBSession,
+    SharingService,
+    SharingServiceSubmission,
+    init_db,
+)
+from skyportal.tests import api, cfg
 from skyportal.tests.fixtures import InstrumentFactory
 
 
@@ -907,3 +915,191 @@ def test_a_reclassification_after_a_sent_tns_report_files_another(
     submissions = _submissions(tns_classification_service, super_admin_token)
     (new,) = [s for s in submissions if s["tns_status"] == "pending"]
     assert new["tns_report_classification_id"] == ia_id
+
+
+class _Stop(BaseException):
+    pass
+
+
+def import_sharing_service_queue():
+    """The service's import-time init_db() rebinds the session; undo it."""
+    from services.sharing_service_submission_queue import (
+        sharing_service_submission_queue,
+    )
+
+    init_db(**cfg["database"])
+    return sharing_service_submission_queue
+
+
+def fake_time(sleeps):
+    """Stand-in for the time module whose sleep stops the loop after `sleeps` calls."""
+    calls = []
+
+    def sleep(seconds):
+        calls.append(seconds)
+        if len(calls) > sleeps:
+            raise _Stop
+
+    return SimpleNamespace(sleep=sleep)
+
+
+def stop(*args, **kwargs):
+    raise _Stop
+
+
+def run_until_stopped(loop):
+    # the loop sets its own DBSession scope, keep it out of the test's context
+    with pytest.raises(_Stop):
+        contextvars.copy_context().run(loop)
+
+
+@pytest.fixture()
+def live_sharing_service():
+    sharing_service = SharingService(name=str(uuid.uuid4()), testing=False)
+    DBSession.add(sharing_service)
+    DBSession.commit()
+    sharing_service_id = sharing_service.id
+    yield sharing_service_id
+    # its submissions are deleted with it (ON DELETE CASCADE)
+    DBSession().execute(
+        sa.delete(SharingService).where(SharingService.id == sharing_service_id)
+    )
+    DBSession().commit()
+
+
+def add_submission(sharing_service_id, obj_id, user_id, timestamp, **kwargs):
+    # an old timestamp makes the queues pick this row before any other
+    submission = SharingServiceSubmission(
+        sharing_service_id=sharing_service_id,
+        obj_id=obj_id,
+        user_id=user_id,
+        created_at=timestamp,
+        modified=timestamp,
+        **kwargs,
+    )
+    DBSession.add(submission)
+    DBSession.commit()
+    return submission.id
+
+
+def get_submission(submission_id):
+    stmt = sa.select(
+        SharingServiceSubmission.tns_status,
+        SharingServiceSubmission.hermes_status,
+        SharingServiceSubmission.tns_response,
+    ).where(SharingServiceSubmission.id == submission_id)
+    return DBSession().execute(stmt).one()
+
+
+def test_tns_retry_does_not_republish_to_hermes(
+    live_sharing_service, public_source, user, monkeypatch
+):
+    queue = import_sharing_service_queue()
+    hermes_status = f"Successfully submitted {public_source.id} to Hermes."
+    submission_id = add_submission(
+        live_sharing_service,
+        public_source.id,
+        user.id,
+        datetime(2000, 1, 1),
+        publish_to_tns=True,
+        tns_status="pending",
+        publish_to_hermes=True,
+        hermes_status=hermes_status,
+    )
+
+    claimed = []
+
+    def process_submission_request(submission_request, session):
+        claimed.append(
+            (submission_request.tns_status, submission_request.hermes_status)
+        )
+        raise ValueError("TNS is down")
+
+    monkeypatch.setattr(queue, "process_submission_request", process_submission_request)
+    # the error path pushes to Flow once it has saved the statuses
+    monkeypatch.setattr(queue, "Flow", stop)
+    monkeypatch.setattr(queue, "time", fake_time(0))
+    run_until_stopped(queue.process_submission_requests)
+
+    assert claimed == [("processing", hermes_status)]
+    tns_status, saved_hermes_status, _ = get_submission(submission_id)
+    assert tns_status == "Error: TNS is down"
+    assert saved_hermes_status == hermes_status
+
+
+@pytest.mark.parametrize("warning", ["(warning: x)", " (warning: x)"])
+def test_tns_validator_completes_reports_with_a_warning(
+    warning, live_sharing_service, public_source, user, monkeypatch
+):
+    queue = import_sharing_service_queue()
+    submission_id = add_submission(
+        live_sharing_service,
+        public_source.id,
+        user.id,
+        datetime(2000, 1, 1),
+        publish_to_tns=True,
+        tns_status=f"submitted{warning}",
+        tns_submission_id=1,
+    )
+    reply = {"status_code": 200}
+    monkeypatch.setattr(
+        queue, "check_at_report", lambda *args: ("2026abc", reply, None)
+    )
+    # the completion path pushes to Flow once it has saved the status
+    monkeypatch.setattr(queue, "Flow", stop)
+    monkeypatch.setattr(queue, "time", fake_time(1))
+    run_until_stopped(queue.validate_submission_requests)
+
+    tns_status, _, tns_response = get_submission(submission_id)
+    assert tns_status == f"complete{warning}"
+    assert tns_response == reply
+
+
+def test_tns_validator_saves_error_reply(
+    live_sharing_service, public_source, user, monkeypatch
+):
+    queue = import_sharing_service_queue()
+    submission_id = add_submission(
+        live_sharing_service,
+        public_source.id,
+        user.id,
+        datetime(2000, 1, 1),
+        publish_to_tns=True,
+        tns_status="submitted",
+        tns_submission_id=1,
+    )
+    reply = {"status_code": 400}
+    error = "Report could not be processed (x)"
+    monkeypatch.setattr(queue, "check_at_report", lambda *args: (None, reply, error))
+    # stops at the next pass, after the reply is saved
+    monkeypatch.setattr(queue, "time", fake_time(1))
+    run_until_stopped(queue.validate_submission_requests)
+
+    tns_status, _, tns_response = get_submission(submission_id)
+    assert tns_status == f"Error: {error}"
+    assert tns_response == reply
+
+
+def test_tns_validator_retries_a_lost_report_with_a_warning(
+    live_sharing_service, public_source, user, monkeypatch
+):
+    queue = import_sharing_service_queue()
+    submission_id = add_submission(
+        live_sharing_service,
+        public_source.id,
+        user.id,
+        datetime(2000, 1, 1),
+        publish_to_tns=True,
+        tns_status="submitted(warning: x)",
+        tns_submission_id=1,
+    )
+    reply = {"status_code": 404}
+    monkeypatch.setattr(
+        queue, "check_at_report", lambda *args: (None, reply, "report not found")
+    )
+    # stops at the next pass, after the report is queued again
+    monkeypatch.setattr(queue, "time", fake_time(1))
+    run_until_stopped(queue.validate_submission_requests)
+
+    tns_status, _, _ = get_submission(submission_id)
+    assert tns_status == "pending"

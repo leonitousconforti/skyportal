@@ -374,9 +374,20 @@ def process_submission_requests():
                         time.sleep(5)
                         continue
                     else:
-                        if submission_request.publish_to_hermes:
+                        # only claim the services still waiting, so a TNS retry
+                        # doesn't publish to Hermes again
+                        if (
+                            submission_request.publish_to_hermes
+                            and submission_request.hermes_status
+                            in ["pending", "processing"]
+                        ):
                             submission_request.hermes_status = "processing"
-                        if submission_request.publish_to_tns:
+                        if (
+                            submission_request.publish_to_tns
+                            and submission_request.tns_status
+                            in ["pending", "processing"]
+                            and submission_request.tns_submission_id is None
+                        ):
                             submission_request.tns_status = "processing"
                         session.commit()
                 except Exception as e:
@@ -403,9 +414,10 @@ def process_submission_requests():
                                     SharingServiceSubmission.id == submission_request_id
                                 )
                             )
-                            if submission_request.publish_to_hermes:
+                            # keep the status of a service that already finished
+                            if submission_request.hermes_status == "processing":
                                 submission_request.hermes_status = f"Error: {str(e)}"
-                            if submission_request.publish_to_tns:
+                            if submission_request.tns_status == "processing":
                                 submission_request.tns_status = f"Error: {str(e)}"
                             session.commit()
                             flow = Flow()
@@ -660,7 +672,8 @@ def validate_submission_requests():
                     submission_request = session.scalar(
                         sa.select(SharingServiceSubmission)
                         .where(
-                            SharingServiceSubmission.tns_status.like("submitted"),
+                            # also matches "submitted" followed by a warning
+                            SharingServiceSubmission.tns_status.like("submitted%"),
                             SharingServiceSubmission.tns_submission_id.isnot(None),
                             SharingServiceSubmission.sharing_service_id.notin_(
                                 sa.select(SharingService.id).where(
@@ -727,18 +740,10 @@ def validate_submission_requests():
                         )
                     elif not err and tns_source and serialized_response:
                         # we may have warnings after the "submitted" status, so we keep them in the "complete" status
-                        existing_tns_status = (
-                            str(submission_request.tns_status).strip().split(" ")
+                        submission_request.tns_status = (
+                            "complete"
+                            + submission_request.tns_status.removeprefix("submitted")
                         )
-                        if (
-                            existing_tns_status
-                            and existing_tns_status[0] == "submitted"
-                        ):
-                            submission_request.tns_status = (
-                                f"complete {' '.join(existing_tns_status[1:])}"
-                            )
-                        else:
-                            submission_request.tns_status = "complete"
                         submission_request.tns_response = serialized_response
                         session.merge(submission_request)
                         session.commit()
@@ -788,7 +793,7 @@ def validate_submission_requests():
                             )
                     elif err is not None and serialized_response is not None:
                         submission_request.tns_status = f"Error: {err}"
-                        submission_request.response = serialized_response
+                        submission_request.tns_response = serialized_response
                         session.merge(submission_request)
                         session.commit()
                         log(f"Error checking TNS report: {err}")
