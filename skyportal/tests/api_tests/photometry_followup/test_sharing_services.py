@@ -1055,6 +1055,31 @@ def test_tns_validator_completes_reports_with_a_warning(
     assert tns_response == reply
 
 
+def test_tns_validator_saves_error_reply(
+    live_sharing_service, public_source, user, monkeypatch
+):
+    queue = import_sharing_service_queue()
+    submission_id = add_submission(
+        live_sharing_service,
+        public_source.id,
+        user.id,
+        datetime(2000, 1, 1),
+        publish_to_tns=True,
+        tns_status="submitted",
+        tns_submission_id=1,
+    )
+    reply = {"status_code": 400}
+    error = "Report could not be processed (x)"
+    monkeypatch.setattr(queue, "check_at_report", lambda *args: (None, reply, error))
+    # stops at the next pass, after the reply is saved
+    monkeypatch.setattr(queue, "time", fake_time(1))
+    run_until_stopped(queue.validate_submission_requests)
+
+    tns_status, _, tns_response = get_submission(submission_id)
+    assert tns_status == f"Error: {error}"
+    assert tns_response == reply
+
+
 def test_tns_validator_retries_a_lost_report_with_a_warning(
     live_sharing_service, public_source, user, monkeypatch
 ):

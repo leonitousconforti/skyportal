@@ -793,7 +793,7 @@ def validate_submission_requests():
                             )
                     elif err is not None and serialized_response is not None:
                         submission_request.tns_status = f"Error: {err}"
-                        submission_request.response = serialized_response
+                        submission_request.tns_response = serialized_response
                         session.merge(submission_request)
                         session.commit()
                         log(f"Error checking TNS report: {err}")
