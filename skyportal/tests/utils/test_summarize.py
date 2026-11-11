@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from skyportal.utils.summarize import summarize, user_summarizer
+from skyportal.utils.summarize import SYSTEM_PROMPT, summarize, user_summarizer
 
 
 def _connection(**fields):
@@ -82,6 +82,22 @@ def test_the_connection_model_wins_then_the_summary_then_the_instance(monkeypatc
     assert user_summarizer(_connection(), {})["model"] == "instance-model"
 
 
+def test_an_anthropic_connection_needs_its_own_model(monkeypatch):
+    # The summary settings and the instance default name OpenAI models.
+    monkeypatch.setattr(
+        "skyportal.utils.summarize._config", lambda: {"model": "instance-model"}
+    )
+    summary = _preferences(model="summary-model", temperature=0.5)
+    with pytest.raises(ValueError, match="Set a model"):
+        user_summarizer(_connection(provider="anthropic"), summary)
+    settings = user_summarizer(
+        _connection(provider="anthropic", model="claude-opus-5-5"), summary
+    )
+    assert settings["provider"] == "anthropic"
+    assert settings["model"] == "claude-opus-5-5"
+    assert settings["base_url"] is None
+
+
 def _stub_openai(monkeypatch, content, finish_reason):
     """Stand in for the OpenAI client, returning one prepared choice."""
     response = SimpleNamespace(
@@ -121,3 +137,65 @@ def test_an_answer_cut_off_at_max_tokens_is_refused(monkeypatch):
 
 def test_no_key_asks_nothing():
     assert summarize("p", "c", settings={}) is None
+
+
+def _stub_anthropic(monkeypatch, outcome):
+    """Stand in for Claude's stream, ending in `outcome`: a stop reason or an error."""
+    from skyportal.utils import anthropic_chat
+
+    sent = {}
+
+    def streamed(client, deadline, **params):
+        sent.update(params, client=client)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return SimpleNamespace(
+            stop_reason=outcome,
+            content=[SimpleNamespace(type="text", text="A tidy summary.")],
+        )
+
+    monkeypatch.setattr(anthropic_chat, "streamed", streamed)
+    return sent
+
+
+ANTHROPIC = {"provider": "anthropic", "api_key": "k", "model": "claude-opus-5-5"}
+
+
+def test_an_anthropic_summary_is_asked_of_claude(monkeypatch):
+    sent = _stub_anthropic(monkeypatch, "end_turn")
+    settings = {**ANTHROPIC, "temperature": 0.3, "max_tokens": 350}
+    assert summarize("p", "c", settings=settings) == "A tidy summary."
+    assert sent["model"] == "claude-opus-5-5"
+    assert sent["system"] == SYSTEM_PROMPT
+    assert sent["client"].api_key == "k"
+    assert str(sent["client"].base_url).startswith("https://api.anthropic.com")
+    # The OpenAI tuning does not apply; the prompt sets the length.
+    assert "temperature" not in sent and "max_tokens" not in sent
+
+
+@pytest.mark.parametrize(
+    "stop_reason", ["max_tokens", "model_context_window_exceeded", "refusal"]
+)
+def test_an_anthropic_summary_cut_short_or_declined_is_refused(
+    monkeypatch, stop_reason
+):
+    _stub_anthropic(monkeypatch, stop_reason)
+    assert summarize("p", "c", settings=ANTHROPIC) is None
+
+
+def test_an_anthropic_failure_is_reported_without_the_providers_words(monkeypatch):
+    import anthropic
+    import httpx2
+
+    from skyportal.utils.anthropic_chat import summary
+
+    response = httpx2.Response(
+        401, request=httpx2.Request("POST", "https://llm.example/v1/messages")
+    )
+    body = {"error": {"message": "invalid key sk-secret-key"}}
+    _stub_anthropic(
+        monkeypatch, anthropic.AuthenticationError("401", response=response, body=body)
+    )
+    with pytest.raises(ValueError) as failure:
+        summary("sk-secret-key", None, "m", "s", "c")
+    assert str(failure.value) == "the provider answered with HTTP 401"

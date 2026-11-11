@@ -25622,9 +25622,9 @@ export interface components {
             readonly user?: components["schemas"]["User"];
             /** @description The user the connection belongs to. */
             user_id: number;
-            /** @description The API the connection speaks, such as openai_compatible. */
+            /** @description The API the connection speaks: openai_compatible or anthropic. */
             provider: string;
-            /** @description Where requests and the key are sent. Null means the provider's default endpoint (api.openai.com for openai_compatible). */
+            /** @description Where requests and the key are sent. Null means the provider's default endpoint. */
             base_url?: string | null;
             /** @description The model to request. Null leaves it to the feature using the connection. */
             model?: string | null;
@@ -25650,9 +25650,9 @@ export interface components {
             readonly user?: components["schemas"]["User"];
             /** @description The user the connection belongs to. */
             user_id: number;
-            /** @description The API the connection speaks, such as openai_compatible. */
+            /** @description The API the connection speaks: openai_compatible or anthropic. */
             provider: string;
-            /** @description Where requests and the key are sent. Null means the provider's default endpoint (api.openai.com for openai_compatible). */
+            /** @description Where requests and the key are sent. Null means the provider's default endpoint. */
             base_url?: string | null;
             /** @description The model to request. Null leaves it to the feature using the connection. */
             model?: string | null;

@@ -19,7 +19,10 @@ import { useGetConfigQuery } from "../../../ducks/config";
 import Button from "../../Button";
 import CustomizeOpenAIParameters from "./CustomizeOpenAIParameters";
 
-const PROVIDERS = [{ value: "openai_compatible", label: "OpenAI-compatible" }];
+const PROVIDERS = [
+  { value: "openai_compatible", label: "OpenAI-compatible" },
+  { value: "anthropic", label: "Anthropic" },
+];
 
 const TEST_SEVERITY = {
   works: "success",
@@ -45,6 +48,7 @@ const AIConnectionPreferences = () => {
   const [apiKey, setApiKey] = useState("");
   const [apiKeyError, setApiKeyError] = useState(false);
   const [baseUrlError, setBaseUrlError] = useState(false);
+  const [modelError, setModelError] = useState(false);
   const [testResult, setTestResult] = useState<AIConnectionTest | null>(null);
 
   // The saved key is never sent back, so its field always starts blank.
@@ -55,6 +59,7 @@ const AIConnectionPreferences = () => {
     setApiKey("");
     setApiKeyError(false);
     setBaseUrlError(false);
+    setModelError(false);
     setTestResult(null);
   }, [connection]);
 
@@ -63,6 +68,7 @@ const AIConnectionPreferences = () => {
   }
 
   const trimmedBaseUrl = baseUrl.trim();
+  const isAnthropic = provider === "anthropic";
   // A saved key is only sent where it was saved for, so a new address needs it.
   const apiKeyRequired =
     !connection?.api_key_set ||
@@ -94,13 +100,37 @@ const AIConnectionPreferences = () => {
     apiKeyHelperText = "Leave blank to keep the saved key";
   }
 
+  let baseUrlHelperText =
+    "Leave blank for OpenAI. Any https service speaking the OpenAI chat-completions protocol works, e.g. OpenRouter, Gemini or an institutional gateway; your key is only ever sent here.";
+  if (baseUrlError) {
+    baseUrlHelperText = "Must be an https:// URL";
+  } else if (isAnthropic) {
+    baseUrlHelperText =
+      "Leave blank for api.anthropic.com; your key is only ever sent here.";
+  }
+
+  const modelMissing = modelError && isAnthropic;
+  let modelHelperText = assistantUserKeys
+    ? "The assistant needs a model here. Left blank, summaries use the one in your summary settings or this instance's default"
+    : "Leave blank for the model in your summary settings or this instance's default";
+  if (modelMissing) {
+    modelHelperText = "A model is required for Anthropic";
+  } else if (isAnthropic) {
+    modelHelperText = assistantUserKeys
+      ? "The Claude model to use, for summaries and the assistant"
+      : "The Claude model to use for summaries";
+  }
+
   const onSave = async () => {
     const badUrl =
       trimmedBaseUrl !== "" && !trimmedBaseUrl.startsWith("https://");
     const missingKey = apiKeyRequired && !apiKey.trim();
+    // The summary settings and this instance's default name OpenAI models.
+    const missingModel = isAnthropic && !model.trim();
     setBaseUrlError(badUrl);
     setApiKeyError(missingKey);
-    if (badUrl || missingKey) {
+    setModelError(missingModel);
+    if (badUrl || missingKey || missingModel) {
       return;
     }
     try {
@@ -162,29 +192,28 @@ const AIConnectionPreferences = () => {
         name="base_url"
         label="Base URL (optional)"
         fullWidth
-        placeholder="https://api.openai.com/v1"
+        placeholder={
+          isAnthropic
+            ? "https://api.anthropic.com"
+            : "https://api.openai.com/v1"
+        }
         value={baseUrl}
         onChange={(event) => setBaseUrl(event.target.value)}
         data-testid="AIConnection_base_url"
-        helperText={
-          baseUrlError
-            ? "Must be an https:// URL"
-            : "Leave blank for OpenAI. Any https service speaking the OpenAI chat-completions protocol works, e.g. OpenRouter, Gemini or an institutional gateway; your key is only ever sent here."
-        }
+        helperText={baseUrlHelperText}
         error={baseUrlError}
       />
       <TextField
         name="model"
-        label="Model (optional)"
+        label={isAnthropic ? "Model" : "Model (optional)"}
         fullWidth
+        required={isAnthropic}
+        placeholder={isAnthropic ? "claude-opus-5-5" : ""}
         value={model}
         onChange={(event) => setModel(event.target.value)}
         data-testid="AIConnection_model"
-        helperText={
-          assistantUserKeys
-            ? "The assistant needs a model here. Left blank, summaries use the one in your summary settings or this instance's default"
-            : "Leave blank for the model in your summary settings or this instance's default"
-        }
+        helperText={modelHelperText}
+        error={modelMissing}
       />
       <TextField
         name="api_key"

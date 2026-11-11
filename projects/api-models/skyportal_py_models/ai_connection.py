@@ -11,7 +11,7 @@ class AIConnectionPutBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: str = Field(
-        description="The API the connection speaks, e.g. openai_compatible."
+        description="The API the connection speaks: openai_compatible or anthropic."
     )
     base_url: str | None = Field(
         default=None,

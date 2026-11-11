@@ -5,6 +5,7 @@ import re
 import time
 import uuid
 
+import anthropic
 import requests
 import sqlalchemy as sa
 import tornado.escape
@@ -29,6 +30,7 @@ from skyportal.models import (
     User,
     UserNotification,
 )
+from skyportal.utils import anthropic_chat
 from skyportal.utils.app import get_app_base_url
 from skyportal.utils.assistant import (
     FILTER_WRITE_TOOLS,
@@ -183,8 +185,11 @@ class CannotAsk(Exception):
     """Why no model can be asked this question, as the reply that says so."""
 
 
-def stream_round(endpoint, messages, tools, budget):
-    """One streamed round from one endpoint, given up on as soon as it falls silent."""
+def stream_round(endpoint, messages, tools, budget, final=False):
+    """One streamed round from one endpoint, given up on as soon as it falls silent.
+
+    `final` asks for the answer itself, with no more tools called.
+    """
     user_key = bool(endpoint.get("user_key"))
     if user_key:
         # A question runs for minutes, and the host may resolve elsewhere by then.
@@ -192,6 +197,12 @@ def stream_round(endpoint, messages, tools, budget):
             check_user_base_url(endpoint["base_url"])
         except ValueError as exc:
             raise CannotAsk(str(exc)) from None
+    if endpoint.get("provider") == "anthropic":
+        return claude_round(endpoint, messages, tools, budget, final)
+    if final:
+        # No tools on the last word, or the model asks for another instead of
+        # answering and the reply comes back empty.
+        tools = []
     headers = {"Content-Type": "application/json"}
     if endpoint.get("api_key"):
         headers["Authorization"] = f"Bearer {endpoint['api_key']}"
@@ -233,7 +244,45 @@ def stream_round(endpoint, messages, tools, budget):
         return streamed_message(response)
 
 
-def chat(route, messages, tools, timeout=None):
+def claude_round(endpoint, messages, tools, budget, final):
+    """One round from a user's Anthropic connection, failing with the errors
+    `chat` and `respond` already handle."""
+    params = anthropic_chat.request(messages, tools)
+    if final and tools:
+        # Dropping the tools would invalidate Claude's earlier thinking.
+        params["tool_choice"] = {"type": "none"}
+    deadline = time.monotonic() + budget
+    try:
+        with anthropic_chat.client(
+            endpoint["api_key"],
+            endpoint["base_url"],
+            timeout=min(STALL_TIMEOUT, budget),
+        ) as client:
+            message = anthropic_chat.streamed(
+                client, deadline, model=endpoint["model"], **params
+            )
+    except anthropic.APIStatusError as exc:
+        # Not its words: a provider may echo part of the key.
+        log(
+            f"model refused the request: {exc.status_code} "
+            f"(messages={len(messages)}, tools={len(tools)})"
+        )
+        if 300 <= exc.status_code < 500:
+            raise requests.exceptions.HTTPError(
+                f"HTTP {exc.status_code}", response=exc.response
+            ) from None
+        # A 5xx, an overload, or an error event partway through a 200 stream.
+        raise requests.exceptions.ConnectionError(
+            f"HTTP {exc.status_code} from the provider"
+        ) from None
+    except anthropic.APITimeoutError:
+        raise requests.exceptions.Timeout("no full answer in time") from None
+    except anthropic.APIConnectionError:
+        raise requests.exceptions.ConnectionError("provider unreachable") from None
+    return anthropic_chat.reply(message)
+
+
+def chat(route, messages, tools, timeout=None, final=False):
     """One chat-completions round, moved along `route()` if an endpoint fails."""
     global _main_skipped_until
     deadline = time.monotonic() + (timeout or TIMEOUT)
@@ -243,7 +292,7 @@ def chat(route, messages, tools, timeout=None):
         if (left := remaining(deadline, floor=1.0)) is None:
             break
         try:
-            return stream_round(endpoint, messages, tools, left)
+            return stream_round(endpoint, messages, tools, left, final)
         except requests.exceptions.HTTPError as exc:
             if exc.response.status_code < 500 and exc.response.status_code != 429:
                 raise
@@ -314,6 +363,7 @@ def answer(conversation, context_type, context_id, user, token, route):
                     "role": "tool",
                     "tool_call_id": call["id"],
                     "content": condense(result, RESULT_BUDGET),
+                    "is_error": not ok,
                 }
             )
 
@@ -325,10 +375,8 @@ def answer(conversation, context_type, context_id, user, token, route):
     )
     if (left := remaining(deadline)) is None:
         return OUT_OF_TIME, trace, proposal(trace)
-    # No tools on the last word, or the model asks for another instead of
-    # answering and the reply comes back empty.
-    text = (chat(route, messages, [], timeout=left).get("content") or "").strip()
-    return text, trace, proposal(trace)
+    reply = chat(route, messages, tools, timeout=left, final=True)
+    return (reply.get("content") or "").strip(), trace, proposal(trace)
 
 
 def answer_from_facts(obj_id, analysis_id, token, route):

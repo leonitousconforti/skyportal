@@ -275,12 +275,30 @@ def test_a_connection_becomes_a_user_endpoint():
         "model": "gpt-5-mini",
         "api_key": "sk-secret-key",
         "user_key": True,
+        "provider": "openai_compatible",
     }
     own = user_endpoint(_connection(base_url="https://llm.example/v1", model=None))
     assert own["base_url"] == "https://llm.example/v1"
     assert own["model"] == ""
     assert user_endpoint(None) is None
     assert user_endpoint(_connection(provider="another_protocol")) is None
+
+
+def test_an_anthropic_connection_becomes_a_user_endpoint():
+    from skyportal.utils.assistant import user_endpoint
+
+    own = user_endpoint(_connection(provider="anthropic", model="claude-opus-5-5"))
+    assert own == {
+        "base_url": "https://api.anthropic.com",
+        "model": "claude-opus-5-5",
+        "api_key": "sk-secret-key",
+        "user_key": True,
+        "provider": "anthropic",
+    }
+    own = user_endpoint(
+        _connection(provider="anthropic", base_url="https://llm.example/anthropic")
+    )
+    assert own["base_url"] == "https://llm.example/anthropic"
 
 
 class _Response:
@@ -367,6 +385,83 @@ def test_the_probe_reports_a_refusal_without_the_key(monkeypatch):
     assert "HTTP 401" in result["message"]
     assert "Incorrect API key provided" in result["message"]
     assert "sk-secret-key" not in result["message"]
+
+
+def _probe_anthropic(monkeypatch, outcome):
+    """The probe's result when Claude's stream ends in `outcome`, and what it sent."""
+    import anthropic
+
+    from skyportal.utils import anthropic_chat, assistant
+
+    sent = {}
+
+    def streamed(client, deadline, **params):
+        sent.update(params, client=client)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return anthropic.types.Message.model_validate(
+            {
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-opus-5-5",
+                "content": outcome,
+                "stop_reason": (
+                    "tool_use"
+                    if any(block["type"] == "tool_use" for block in outcome)
+                    else "end_turn"
+                ),
+                "stop_sequence": None,
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
+        )
+
+    monkeypatch.setattr(assistant, "check_user_base_url", lambda url: url)
+    monkeypatch.setattr(anthropic_chat, "streamed", streamed)
+    endpoint = assistant.user_endpoint(
+        _connection(provider="anthropic", model="claude-opus-5-5")
+    )
+    return assistant.probe(endpoint), sent
+
+
+def test_the_probe_asks_claude_through_its_own_api(monkeypatch):
+    call = {"type": "tool_use", "id": "toolu_1", "name": "confirm_connection"}
+    result, sent = _probe_anthropic(monkeypatch, [{**call, "input": {}}])
+    assert result["outcome"] == "works"
+    assert sent["client"].api_key == "sk-secret-key"
+    assert str(sent["client"].base_url).startswith("https://api.anthropic.com")
+    assert [tool["name"] for tool in sent["tools"]] == ["confirm_connection"]
+    # A forced tool_choice is refused by current models.
+    assert "tool_choice" not in sent
+
+    reply = [{"type": "text", "text": "Connected."}]
+    result, _ = _probe_anthropic(monkeypatch, reply)
+    assert result["outcome"] == "no_tool_calls"
+
+
+def test_the_probe_reports_claudes_refusal_without_the_key(monkeypatch):
+    import anthropic
+    import httpx2
+
+    response = httpx2.Response(
+        401, request=httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    )
+    body = {"error": {"message": "invalid x-api-key sk-secret-key"}}
+    error = anthropic.AuthenticationError("401", response=response, body=body)
+    result, _ = _probe_anthropic(monkeypatch, error)
+    assert result["outcome"] == "failed"
+    assert "HTTP 401" in result["message"]
+    assert "invalid x-api-key" in result["message"]
+    assert "sk-secret-key" not in result["message"]
+
+    # An error event partway through comes with the stream's own 200.
+    response = httpx2.Response(
+        200, request=httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    )
+    body = {"type": "error", "error": {"type": "overloaded_error", "message": "Busy"}}
+    error = anthropic.APIStatusError("200", response=response, body=body)
+    result, _ = _probe_anthropic(monkeypatch, error)
+    assert result["message"] == "The provider reported an error partway through: Busy"
 
 
 def test_the_probe_sends_nothing_it_cannot_send_safely(monkeypatch):

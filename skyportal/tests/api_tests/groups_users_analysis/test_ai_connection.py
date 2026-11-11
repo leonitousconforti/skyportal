@@ -96,6 +96,26 @@ def test_ai_connection_refuses_bad_input(view_only_token):
     assert get(view_only_token) is None
 
 
+def test_anthropic_is_a_provider(view_only_token):
+    status, data = put(
+        view_only_token, provider="anthropic", model="claude-opus-5-5", api_key=KEY
+    )
+    assert status == 200, data
+    try:
+        connection = get(view_only_token)
+        assert connection["provider"] == "anthropic"
+        # Left blank, the key goes to api.anthropic.com.
+        assert connection["base_url"] is None
+        assert connection["model"] == "claude-opus-5-5"
+
+        # A saved key is not carried over to another provider.
+        status, data = put(view_only_token, model="gpt-4o")
+        assert status == 400
+        assert "Enter the API key again" in data["message"]
+    finally:
+        api("DELETE", "internal/ai_connection", token=view_only_token)
+
+
 def test_each_user_only_sees_their_own_ai_connection(
     view_only_token, view_only_token_group2, super_admin_token
 ):
